@@ -1,0 +1,6 @@
+simple-salesforce
+cryptography
+pyjwt
+requests
+python-dotenv
+paramiko

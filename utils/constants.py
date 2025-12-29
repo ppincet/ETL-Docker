@@ -1,0 +1,7 @@
+ETL_PROCESS = 'ETL Process'
+ETL_ALIVE = 'HeartBeat'
+ETL_FAIL = 'Failed'
+ETL_SUCCESS = 'Success'
+ETL_SFTP_FAIL = 'SFTP Fail'
+ETL_CRITICAL = 'Critical Failure'
+ETL_EMPTY = 'Empty recordset'
