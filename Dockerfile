@@ -1,4 +1,12 @@
-FROM python:3.12
-COPY . . 
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-CMD [ "python", "./main.py" ]
+
+COPY . .
+
+ENV PYTHONPATH="${PYTHONPATH}:/app/src"
+
+CMD ["python", "src/main.py"]
