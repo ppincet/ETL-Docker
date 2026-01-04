@@ -17,7 +17,7 @@ signal.signal(signal.SIGTERM, handle_sigterm)
 
 def main():
     sf = salesforce.get_instance()
-    new_era_start = time.time()
+    new_era_start = time.time() 
     # force.log(common.heartbeatWrapper('Hello, world!'))
     try:
         while  not stop_event.is_set():
