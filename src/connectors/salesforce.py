@@ -1,41 +1,61 @@
 import requests
-import time
-import jwt 
-from config import settings
-from simple_salesforce import Salesforce
 import functools
-import requests
+import time
+import jwt
+from simple_salesforce import Salesforce
+from config import settings
 
-_sf_instance = None
-def get_instance():
-    global _sf_instance
-    if _sf_instance is None:
+class SalesforceClient:
+    def __init__(self):
+        self._sf_instance = None
+
+    def get_instance(self):
+        if self._sf_instance is None:
+            self.refresh_connection()
+        return self._sf_instance
+
+    def refresh_connection(self):
+        print("🔄 Authenticating Salesforce...")
+        if self._sf_instance and hasattr(self._sf_instance, 'session'):
+            try:
+                self._sf_instance.session.close()
+            except Exception:
+                pass
+        self._sf_instance = None 
         session = requests.Session()
-        session.request = functools.partial(session.request, timeout=15)
+        session.request = functools.partial(session.request, timeout=60)
+        self._sf_instance = None 
+
+        session = requests.Session()
+        session.request = functools.partial(session.request, timeout=60)
+
         payload = {
             'iss': settings.CONSUMER_KEY,
             'sub': settings.USERNAME,
             'aud': settings.LOGIN_URL,
-            'exp': int(time.time()) + 300  
+            'exp': int(time.time()) + 300
         }
-        
-        encoded_token = jwt.encode(
-            payload, 
-            settings.PRIVATE_KEY, 
-            algorithm='RS256'
-        )
+        encoded_token = jwt.encode(payload, settings.PRIVATE_KEY, algorithm='RS256')
 
-        response = session.post(
-            f"{settings.LOGIN_URL}/services/oauth2/token",
-            data={
-                'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-                'assertion': encoded_token
-            }
-        )
-        if response.status_code != 200:
-            raise Exception(f"❌ Authentication Failed: {response.text}")
-        auth_response = response.json()
-        _sf_instance = Salesforce(instance_url=auth_response['instance_url'], 
-            session_id=auth_response['access_token'],
-            session=session)
-    return _sf_instance
+        try:
+            response = session.post(
+                f"{settings.LOGIN_URL}/services/oauth2/token",
+                data={
+                    'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    'assertion': encoded_token
+                }
+            )
+
+            if response.status_code == 200:
+                auth_response = response.json()
+                self._sf_instance = Salesforce(
+                    instance_url=auth_response['instance_url'],
+                    session_id=auth_response['access_token'],
+                    session=session
+                )
+                print("✅ Salesforce Connected")
+            else:
+                raise Exception(f"❌ Auth Failed: {response.text}")
+        except Exception as e:
+            print(f"Connection error: {e}")
+            raise e

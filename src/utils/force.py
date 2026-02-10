@@ -1,6 +1,39 @@
 from typing import Dict, Iterator, Any, List
 from collections import defaultdict
 import itertools
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from utils import constants
+from config import settings
+
+
+def get_manifest(sf):
+    """
+        Returns manifest scaffold
+        sf configurable only
+    """
+    manifest_scaffold_statement = """
+        SELECT
+            Prefix__c,
+            Property_Name__c,
+            Value_text__c
+        FROM ETL_manifest_fields__mdt 
+        """
+    system_results = {}
+    results = []
+    for rec in sf.query(manifest_scaffold_statement)['records']:
+        entry = {
+            'prefix': rec.get('Prefix__c'),
+            'property': rec.get('Property_Name__c'),
+            'value' : rec.get('Value_text__c')
+        }
+        if entry.get('prefix') == 'sf_system' :
+            system_results[entry['property']] = entry['value']
+        else:
+            results.append(entry)
+    return {'systemResultsInternal': system_results,
+            'results' : results}
+
 def log(sf, message, trace=""):
     """
     Provides log message
@@ -9,9 +42,10 @@ def log(sf, message, trace=""):
 def get_mappings(sf):
     """
         Returns mapping froms SF Metadata
-
         we dont need to implement generator - we are sure we have less than 2k recs
+        todo - work with json as well
     """
+    
     mapping_statement = """
         SELECT 
             ETL_Entities_Mapping__r.DeveloperName,
@@ -20,14 +54,22 @@ def get_mappings(sf):
             ETL_Entities_Mapping__r.Where_Clause__c,
             ETL_Entities_Mapping__r.External_Id_Name__c,
             ETL_Entities_Mapping__r.Is_details_source__c,
+            ETL_Dictionary__r.Label_True__c,
+            ETL_Dictionary__r.Label_False__c,
+            ETL_Dictionary__r.JSON__c,
+            Source_Field_Type__c,
             Target_Field_Name__c, 
-            Source_Field_Name__c 
+            Source_Field_Name__c,
+            Excluded_from_header__c,
+            Excluded_from_recordset__c
         FROM ETL_Fields_Mapping__mdt
         """
     results = sf.query(mapping_statement)
     schema_map = {}
     for rec in results['records']:
         parent = rec.get('ETL_Entities_Mapping__r')
+        if not parent: continue
+        dictionary_ref = rec.get('ETL_Dictionary__r')
         developer_name = parent.get('DeveloperName')
         if developer_name not in schema_map:
             schema_map[developer_name] = {"header" : {
@@ -35,19 +77,37 @@ def get_mappings(sf):
                 "where_cl" : parent.get('Where_Clause__c'),
                 "external_id_name" : parent.get('External_Id_Name__c'),
                 "is_details" : parent.get('Is_details_source__c'),
-                "object_name" : parent.get('Entity_API_Name__c')
+                "object_name" : parent.get('Entity_API_Name__c'),
+                "rules" : {}
             },
                 "details": []}
-        if not parent: continue
         source_field = rec.get('Source_Field_Name__c')
+        source_field_type = rec.get('Source_Field_Type__c')
         target_header = rec.get('Target_Field_Name__c')
+        is_recordset_only = rec.get('Excluded_from_header__c')
+        is_header_only = rec.get('Excluded_from_recordset__c')
+        
         if developer_name and source_field:
             schema_map[developer_name]["details"].append({
                     "source": source_field,
-                    "target": target_header
+                    "target": target_header,
+                    "type": source_field_type,
+                    "is_recordset_only": is_recordset_only,
+                    "is_header_only": is_header_only
             })
+            if dictionary_ref:
+                schema_map[developer_name]["header"]["rules"][source_field] = {
+                    True: dictionary_ref.get('Label_True__c'),
+                    False: dictionary_ref.get('Label_False__c')
+        }
+   
     return schema_map
+
 def get_junctions(sf):
+    '''
+        we should provide Master FK as `Excluded from header` if we don't wanna reflect it
+        but need to get joined recordset
+    ''' 
     soql = '''
         SELECT 
             Master_source__r.developerName,
@@ -61,9 +121,10 @@ def get_junctions(sf):
         if  master not in junctions:
             junctions[master] = []
         junctions[master] = { 
-            'source' : rec['Details_Source__r']['DeveloperName'],
-            'fk' : rec['Master_FK__c']
+            'source' : rec['Details_Source__r'].get('DeveloperName'),
+            'fk' : rec.get('Master_FK__c')
         }
+
     return junctions
 def get_watermarks(sf):
     """
@@ -81,59 +142,88 @@ def get_watermarks(sf):
         entity = rec.get('Entity_API_Name__c')
         if entity not in watermarks:
             watermarks[entity] = rec.get('Stamp__c')
+    #print(f'watermarks:{watermarks}')
     return watermarks
 def get_results(sf):
     gen_map: Dict[tuple, List[Iterator[str]]] = defaultdict(list)
     gen_scaffolds = get_gen_scaffolds(sf)
     def generate_delta(source, contents):
-        print('generate delta')
         master = {}
         id_field = contents["fk"].lower()
+        
         # populating master
-
-        watermark =  gen_scaffolds[source]['wm'] or "1900-01-01T00:00:00.000+0000"
+        #watermark =  gen_scaffolds[source]['wm'] or "1900-01-01T00:00:00.000+0000"
+        #print('inside master')
         source_set = gen_scaffolds[source]['fields'].get('details',[])
         target_set = gen_scaffolds[contents["source"]]['fields'].get('details',[])
+        #dict_ref = gen_scaffolds[source]['fields']['header'].get('rules')
         fields = sorted(itertools.chain(source_set, target_set), key=lambda x: x['target'])
-        # db_stream = lazy_loading(sf, gen_scaffolds[source]['soql'])
-        # try:
-        #     first_record = next(db_stream)
-        # except StopIteration:
-        #     return
-        yield (','.join([*[f['target'] for f in fields], 'status']) + '\n', None)
-        for rec in lazy_loading(sf, gen_scaffolds[source]['soql']):
-            master_key = flatten_record(rec).get(id_field)
+   
+        db_stream = lazy_loading(sf, gen_scaffolds[source]['soql'])
+        context = {
+           "fields": fields,
+            "rules": gen_scaffolds[source]['fields']['header'].get('rules'),
+            "watermark": gen_scaffolds[source]['wm'] or "1900-01-01T00:00:00.000+0000"
+        
+        }
+   
+        try:
+            first_record = next(db_stream)
+        except StopIteration:
+            return
+        # header
+        # yield (','.join([*[f['target'] for f in fields], 'status']) + '\n', None)
+        yield (','.join([*[f['target'] for f in fields], 'dateLastModified\n']), None)
+        #print(','.join([*[f['target'] for f in fields], 'dateLastModified\n']))
+        
+        for rec in itertools.chain([first_record], db_stream):
+            print(f'field id:{id_field}')
+            print(f'master key: {flatten_record(rec).get(id_field)}')
+            master_key = flatten_record(rec).get(id_field) #full record
             master[master_key] = rec
+             
         for rec in lazy_loading(sf, gen_scaffolds[contents["source"]]['soql']):
             # always id in terms of sf
             if rec.get('id') in master:
-                yield (format_row(master[rec.get('id')] | rec, fields, watermark), 
+                # here to add createdDate field
+                yield (format_row(master[rec.get('id')] | rec, context), 
                         master[rec['id']].get('systemmodstamp'))
                 # print(f'rec:{rec.get("id")}')
                 # print (format_row(master[rec.get('id')] | rec, fields, watermark), 
                 #         master[rec['id']].get('systemmodstamp'))
     for dev_name, contents in get_junctions(sf).items():
         h = gen_scaffolds[dev_name]['fields'].get('header')
-        entity_tuple = (h['file'] + '.csv', h['object_name'])
+        entity_tuple = (h['file'], h['object_name'])
         gen_map[entity_tuple].append(generate_delta(dev_name, contents))
         h['is_details'] = True
     for dev_name, contents in gen_scaffolds.items():
         h = contents['fields']['header']
         if h.get('is_details'):
             continue
-        # if dev_name != 'User_Student':
-        #     continue
         watermark =  gen_scaffolds[dev_name]['wm'] or "1900-01-01T00:00:00.000+0000"
-        soql = contents['soql']
         fields = contents['fields']['details']
         header = contents['fields']['header']
-        composed_gen = itertools.chain(csv_row_generator(sf, soql, fields, watermark), 
+        main_context = {
+            "soql" :  contents['soql'],
+            "fields" : contents['fields']['details'],
+            "header" : contents['fields']['header'],
+            "watermark" : watermark,
+            "rules" : gen_scaffolds[dev_name]['fields']['header'].get('rules')
+        }
+        del_context = {
+            "fields" : fields,
+            "object_name" : header['object_name'], 
+            "external_id" : header['external_id_name'],
+            "watermark" : watermark,
+            "rules" : gen_scaffolds[dev_name]['fields']['header'].get('rules')
+        }
+        composed_gen = itertools.chain(csv_row_generator(sf, main_context), 
                                        del_generator(sf, 
                                                      fields, 
                                                      header['object_name'], 
                                                      header['external_id_name'], 
                                                      watermark))
-        entity_tuple = (h['file'] + '.csv', h['object_name'])
+        entity_tuple = (h['file'], h['object_name'])
         gen_map[entity_tuple].append(composed_gen)
     return gen_map
 
@@ -145,10 +235,15 @@ def get_gen_scaffolds(sf):
             continue
         custom_clause = fields['header'].get('where_cl')
         is_details = fields['header'].get('is_details')
-        source_fields = [f['source'] for f in fields['details'] if f['source'] != '---']
+        #source_fields = [f['source'] for f in fields['details'] if f['source'] != '---']
+        source_fields = [f['source'] for f in fields['details'] if not f.get('is_header_only')]
         tech_fields = ['Id']
         if not is_details:
-            tech_fields.extend(['SystemModStamp', 'CreatedDate'])
+            tech_fields.extend(['SystemModStamp', 
+                                'CreatedDate', 
+                                'CreatedBy.TimeZoneSidKey',
+                                'LastModifiedDate',
+                                ])
         final_fields = list(dict.fromkeys(f.lower() for f in source_fields + tech_fields))
         object_name = fields['header'].get('object_name')
         watermark = None if is_details else watermarks[object_name]
@@ -160,6 +255,8 @@ def get_gen_scaffolds(sf):
             {where_statement}
             ORDER BY SYSTEMMODSTAMP ASC
         """
+        #print(soql)
+        fields['details'] = [f for f in fields['details'] if not f.get('is_recordset_only')]
         gen_scaffolds[developer_name] = {
             "soql" : soql,
             "fields" : fields,
@@ -172,6 +269,7 @@ def lazy_loading(sf, soql_statement):
     """
         Records generator
     """
+    
     results = sf.query(soql_statement)
     done = results['done']
     for rec in results['records']:
@@ -183,29 +281,70 @@ def lazy_loading(sf, soql_statement):
         for rec in results['records']:
             yield flatten_record(rec)
 
-def format_row(rec, fields, watermark):
+
+def format_row(rec, context):
     row = []
-    for f in fields:
-        row.append(rec.get(f['source'].lower()) if f['target'] != '---' else "")
-    row.append('U' if watermark > rec.get('createddate') else 'C')
+    last_modified_date = rec.get('lastmodifieddate') # lowered hardly
+    
+    if last_modified_date and last_modified_date.endswith('+0000'):
+        last_modified_date = last_modified_date.replace("+0000", "Z")
+    adjusted_rec = adjust_date(rec.copy(),['createddate']) # we need to adjust only created date not last modified
+    rules = context['rules'] # rules reflect true/false for active/inactive
+    for f in context['fields']:  
+        raw_val = adjusted_rec.get(f['source'].lower())
+        if f['type'] == constants.ETL_BOOLEAN_TYPE:
+            field_rule = rules.get(f['source'], {})
+            if raw_val is not None:
+                raw_val = field_rule.get(raw_val, raw_val)
+        #here to replace with cmdt solution
+        row.append(raw_val if f['target'] != '---' else "")
+    row.append(last_modified_date)
+    # do not delete - tempo solution
+    # row.append('U' if watermark > created_date else 'C')
     return ",".join([str(x) if x is not None else "" for x in row]) + '\n'
 
-def csv_row_generator(sf, soql_statement, fields, watermark, include_header = True):
-    db_stream = lazy_loading(sf, soql_statement) 
+def adjust_date(rec, fields):
+    '''    
+    :param rec: record to get adjusted
+    :param fields: list of fields to get adjusted according to timezone
+    '''
+    # we should provide at least one field with timezonesidkey
+    tz = rec.get('createdby.timezonesidkey')
+    
+    for field in fields:
+        if tz and rec.get(field):
+            try:
+                utc_dt = datetime.fromisoformat(rec[field])
+                local_dt = utc_dt.astimezone(ZoneInfo(tz))
+                rec[field] = local_dt.strftime('%Y-%m-%d')       
+            except Exception as e:
+                # replace with default from .env
+                print(f"Skipping conversion for {rec.get('id')}: {e}")
+    return rec
+
+def csv_row_generator(sf, context, include_header = True):
+    db_stream = lazy_loading(sf, context["soql"]) 
     try:
         first_record = next(db_stream)
     except StopIteration:
         return
-    ordered_fields = sorted(fields, key=lambda x: x['target'])
+    ordered_fields = sorted(context["fields"], key=lambda x: x['target'])
 
     if include_header is True:
-        yield (",".join([*[f['target'] for f in ordered_fields], 'status']) + '\n', None)
-
-    yield (format_row(first_record, ordered_fields, watermark), first_record['systemmodstamp'])
+        # as per jan,14 2026
+        #yield (",".join([*[f['target'] for f in ordered_fields], 'status']) + '\n', None)
+        yield (','.join(f['target'] for f in ordered_fields) + ',dateLastModified\n', None)
+        ctx = {
+           "fields": ordered_fields,
+            "rules": context["rules"],
+            "watermark": context["watermark"]
+        }
+    yield (format_row(first_record, ctx), first_record['systemmodstamp'])
     for rec in db_stream:
-        yield (format_row(rec, ordered_fields, watermark), rec.get('systemmodstamp'))
+        yield (format_row(rec, ctx), rec.get('systemmodstamp'))
 
 def del_generator(sf, fields, object_name, ext_field, watermark):
+    return
     soql_statement = f"""
         SELECT External_Id__c, createddate
         FROM Deletion_Log__c
@@ -213,17 +352,20 @@ def del_generator(sf, fields, object_name, ext_field, watermark):
             and CreatedDate > {watermark}
     """
     ordered_fields = sorted(fields, key=lambda x: x['target'])
+   
+  
     # external_field = fields[0].get('external_id_name').lower()
     for rec in lazy_loading(sf, soql_statement):
         id = rec.get('external_id__c') 
+        # print(f'test from del gen:{rec}:{(id)}')
         if not id: continue
         row = []
         for item in ordered_fields:
             row.append(id if item['source'].lower() ==  ext_field else '')
         row.append('D')
-        #print((",".join(row) + '\n', rec.get('createddate')))
+        print((",".join(row) + '\n', rec.get('createddate')))
         yield (",".join(row) + '\n', rec.get('createddate'))
-
+  #  print('------ etx del ------')
 def flatten_record(record):
     """
     Flattens a nested dictionary iteratively (no recursion).
@@ -248,8 +390,9 @@ def flatten_record(record):
 def upsert_wm(sf, wm):
     """
     Upserts watermark records one-by-one using the External ID.
+    updates - we need to manage with both CU & D updates
     """      
-    print(f'watermarks:{wm}')
+
     success_count = 0
     for entity_name, max_date in wm.items():
         if not max_date:

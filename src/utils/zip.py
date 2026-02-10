@@ -4,7 +4,8 @@ from utils import force, constants
 from collections import defaultdict
 
 def upload_file(sf, zip_filename,wm):
-    
+    # try:
+    manifest_entries = []
     file_groups = defaultdict(list)
     header_size = 0
     total_size = 0
@@ -24,7 +25,8 @@ def upload_file(sf, zip_filename,wm):
                     except StopIteration:
                         continue
                     if csv_entry is None:
-                        csv_entry = zf.open(filename, "w")
+                        csv_entry = zf.open(filename + '.csv', "w")
+                        manifest_entries.append(filename)
                     if not file_header_written:
                         if isinstance(header_row, tuple): 
                             header_row = header_row[0]
@@ -48,6 +50,27 @@ def upload_file(sf, zip_filename,wm):
             finally:
                 if csv_entry:
                     csv_entry.close()
+        #manifest region
+        if total_size > header_size:
+            manifest_header = 'propertyName,value\n'
+            manifest_entry = zf.open('manifest.csv', "w")
+            manifest_entry.write(manifest_header.encode('utf-8'))
+            manifest_contents = force.get_manifest(sf)
+            system_results = manifest_contents['systemResultsInternal']
+            for m in manifest_contents['results']:
+                manifest_prefix = m.get('prefix')
+                manifest_property = m.get('property')
+                manifest_value = m.get('value')
+                if manifest_prefix == system_results.get('file') and manifest_property not in manifest_entries:
+                    continue
+                if manifest_property in manifest_entries:
+                    manifest_value = system_results.get('delta')
+                current_line = f"{manifest_prefix}.{manifest_property},{manifest_value}\n"
+                manifest_entry.write(current_line.encode('utf-8'))
+            manifest_entry.close()
+    #print(f'total:{total_size} vs header:{header_size}')
+# except Exception as e:
+    # print(f'exc: {e}')
     return constants.ETL_SUCCESS if total_size > header_size else constants.ETL_EMPTY
 
 
