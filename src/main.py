@@ -1,37 +1,80 @@
 import time
 import signal
-import sys
-import traceback
 from threading import Event
+from collections import deque
 from processes import inbound, outbound
 from config import settings
 from utils import force, common
-from connectors import salesforce
+from connectors import sftp
+from connectors.salesforce import SalesforceClient 
+
 stop_event = Event()
 
-def handle_sigterm(*args):
+def handle_sigterm(signum, frame):
+    print("Received SIGTERM, stopping gracefully...")
     stop_event.set()
-    #force.log(common.heartbeatWrapper('Go to sleep', 'SIGTERM'))
 
 signal.signal(signal.SIGTERM, handle_sigterm)
 
 def main():
-    sf = salesforce.get_instance()
-    new_era_start = time.time()
-    # force.log(common.heartbeatWrapper('Hello, world!'))
+    sf_client = SalesforceClient()
+
+    resources = {
+        'sf_conn': sf_client.get_instance,
+        'sftp_conn': sftp.get_instance,
+    }
+
     try:
-        while  not stop_event.is_set():
-            starting_point =time.time()
-            inbound.process()
-            outbound.process()
+        while not stop_event.is_set():
+            starting_point = time.time()
+            
+            pipeline = deque([
+                (inbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
+                (outbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
+            ])
+
+            while pipeline:
+                if stop_event.is_set(): break
+                
+                func, resource_keys, static_kwargs = pipeline[0]
+                task_name = f"{func.__module__}.{func.__name__}"
+                print(f'from main: {task_name}')
+                try:
+                    injected_args = {}
+                    for key in resource_keys:
+                        injected_args[key] = resources[key]()
+                    
+                    final_kwargs = {**injected_args, **static_kwargs}
+                    func(**final_kwargs)
+
+                except Exception as e:
+                    print(f'from main exc:{e}')
+                    if settings.DEBUG:
+                        print(f'❌ Task {task_name} failed: {e}')
+                    try:
+                        print(f"⚠️ Attempting to refresh Salesforce connection...")
+                        sf_client.refresh_connection()
+                    except Exception as auth_e:
+                        print(f"❌ Refresh failed: {auth_e}")
+
+                finally:
+                    pipeline.popleft()                    
+                    if settings.DEBUG:
+                        print(f'Finished {task_name}. Moving to next step...')
             rest = max(0, float(settings.WINDOW) - (time.time() - starting_point))
-            if rest > 0: time.sleep(rest)
-            # stop_event.set()
-    except Exception as e:
-        #if settings.DEBUG:
-        print(f'possible step:{str(e)}')
-        force.log(sf, common.crushWrapper(traceback.format_exc()[-32000:], str(e)))
-        #traceback.print_exc()
-        sys.exit(1)
+            if rest > 0: 
+                time.sleep(rest)
+
+    finally:
+        try:
+            if 'sftp_conn' in resources:
+                sftp_client = resources['sftp_conn']()
+                if hasattr(sftp_client, 'close'): 
+                    sftp_client.close()
+            if settings.DEBUG:
+                print("Connections closed")
+        except Exception as e:
+            pass 
+
 if __name__ == "__main__":
     main()
