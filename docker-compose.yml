@@ -4,9 +4,5 @@ services:
   etl-process:
     build: .
     restart: always
-    volumes:
-      - ./cert:/app/cert
     env_file:
       - .env
-    environment:
-      - SF_KEY_PATH=/app/cert/private.key
