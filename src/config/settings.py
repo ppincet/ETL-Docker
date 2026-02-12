@@ -3,12 +3,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 try:
-    print('before loading env')
+    #print('before loading env')
     from dotenv import load_dotenv
     env_path = Path(__file__).resolve().parent.parent.parent / '.env'
-    print(f'env path{env_path}')
+    #print(f'env path{env_path}')
     if env_path.exists():
-        print(f"Loading environment from {env_path}")
+        #print(f"Loading environment from {env_path}")
         load_dotenv(dotenv_path=env_path, override=True)
 except ImportError:
     print('error')
