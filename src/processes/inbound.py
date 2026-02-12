@@ -11,11 +11,11 @@ def process(sf_conn, sftp_conn, strict = False):
   timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
   filename = f"./{settings.SSH_FILE_IPREFIX}-{timestamp}.zip"
   wm: dict[str, datetime] = {}
-  print('from inbound:')
+  #print('from inbound:')
   if zip.upload_file(sf_conn,  filename, wm) == constants.ETL_SUCCESS:
     print('----- zip is alive after force')
     print(f'filename from inbound:{filename}')
-    print(f'wm after zip: {wm}')
+    #print(f'wm after zip: {wm}')
     if ssh.upload(sf_conn, sftp_conn, filename) == constants.ETL_SUCCESS:
       force.upsert_wm(sf_conn, wm)
       print('done from inbound')
