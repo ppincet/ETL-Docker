@@ -18,7 +18,7 @@ signal.signal(signal.SIGTERM, handle_sigterm)
 
 def main():
     sf_client = SalesforceClient()
-
+    heart_tick_counter = 5
     resources = {
         'sf_conn': sf_client.get_instance,
         'sftp_conn': sftp.get_instance,
@@ -38,7 +38,10 @@ def main():
                 
                 func, resource_keys, static_kwargs = pipeline[0]
                 task_name = f"{func.__module__}.{func.__name__}"
-                print(f'from main: {task_name}')
+                heart_tick_counter += 1
+                if heart_tick_counter >= 5:
+                    print(f'heart tick: {time.time()}')
+                    heart_tick_counter = 0
                 try:
                     injected_args = {}
                     for key in resource_keys:
