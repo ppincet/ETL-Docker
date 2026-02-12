@@ -40,7 +40,7 @@ def main():
                 task_name = f"{func.__module__}.{func.__name__}"
                 heart_tick_counter += 1
                 if heart_tick_counter >= 5:
-                    print(f'heart tick: {time.time()}')
+                    print(f"heart tick: {time.strftime('%H:%M:%S')}")
                     heart_tick_counter = 0
                 try:
                     injected_args = {}
