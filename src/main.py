@@ -30,7 +30,7 @@ def main():
             
             pipeline = deque([
                 (inbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
-                (outbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
+                #(outbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
             ])
             heart_tick_counter += 1
             if heart_tick_counter >= 5:

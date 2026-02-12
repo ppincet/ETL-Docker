@@ -3,6 +3,5 @@
 
 
 def process(sf_conn, sftp_conn, strict = False):
-    print("----- outbound -----")
-
+    #print("----- outbound -----")
     
