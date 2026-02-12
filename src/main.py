@@ -32,16 +32,15 @@ def main():
                 (inbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
                 (outbound.process, ['sf_conn', 'sftp_conn'], {'strict': True}),
             ])
-
+            heart_tick_counter += 1
+            if heart_tick_counter >= 5:
+                print(f"heart tick: {time.strftime('%H:%M:%S')}")
+                heart_tick_counter = 0
             while pipeline:
                 if stop_event.is_set(): break
                 
                 func, resource_keys, static_kwargs = pipeline[0]
                 task_name = f"{func.__module__}.{func.__name__}"
-                heart_tick_counter += 1
-                if heart_tick_counter >= 5:
-                    print(f"heart tick: {time.strftime('%H:%M:%S')}")
-                    heart_tick_counter = 0
                 try:
                     injected_args = {}
                     for key in resource_keys:
