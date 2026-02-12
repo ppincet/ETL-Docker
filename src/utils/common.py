@@ -9,7 +9,7 @@ def heartbeatWrapper(step, details='default'):
     }
 
 def crushWrapper(trace, step=''):
-    print('from crusher')
+    print('from crusher -- test')
     print(f'step :{step} \n len:{len(step)}')
     return {
         'Message__c' : constants.ETL_CRITICAL,

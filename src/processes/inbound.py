@@ -13,7 +13,7 @@ def process(sf_conn, sftp_conn, strict = False):
   wm: dict[str, datetime] = {}
   #print('from inbound:')
   if zip.upload_file(sf_conn,  filename, wm) == constants.ETL_SUCCESS:
-    print('----- zip is alive after force')
+    #print('----- zip is alive after force')
     print(f'filename from inbound:{filename}')
     #print(f'wm after zip: {wm}')
     if ssh.upload(sf_conn, sftp_conn, filename) == constants.ETL_SUCCESS:
