@@ -34,7 +34,8 @@ def main():
             ])
             heart_tick_counter += 1
             if heart_tick_counter >= 5:
-                print(f"heart tick: {time.strftime('%H:%M:%S')}")
+                if settings.DEBUG:
+                    print(f"heart tick: {time.strftime('%H:%M:%S')}")
                 heart_tick_counter = 0
             while pipeline:
                 if stop_event.is_set(): break
@@ -50,7 +51,6 @@ def main():
                     func(**final_kwargs)
 
                 except Exception as e:
-                    print(f'from main exc:{e}')
                     if settings.DEBUG:
                         print(f'❌ Task {task_name} failed: {e}')
                     try:
@@ -78,5 +78,5 @@ def main():
         except Exception as e:
             pass 
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     main()

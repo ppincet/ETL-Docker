@@ -39,14 +39,15 @@ def log(sf, message, trace=""):
     Provides log message
     """
     sf.User_Provisioning_Evt__e.create(message)
-def get_mappings(sf):
+def get_mappings(sf, direction = 'Forth'):
+    print(f'direction:{direction}')
     """
         Returns mapping froms SF Metadata
         we dont need to implement generator - we are sure we have less than 2k recs
         todo - work with json as well
     """
     
-    mapping_statement = """
+    mapping_statement = f"""
         SELECT 
             ETL_Entities_Mapping__r.DeveloperName,
             ETL_Entities_Mapping__r.Entity_Api_Name__c, 
@@ -57,12 +58,19 @@ def get_mappings(sf):
             ETL_Dictionary__r.Label_True__c,
             ETL_Dictionary__r.Label_False__c,
             ETL_Dictionary__r.JSON__c,
+            ETL_Entities_Mapping__r.Operation_Type__c,
+            ETL_Entities_Mapping__r.Direction__c,
             Source_Field_Type__c,
             Target_Field_Name__c, 
             Source_Field_Name__c,
             Excluded_from_header__c,
             Excluded_from_recordset__c
+
         FROM ETL_Fields_Mapping__mdt
+        WHERE ETL_Entities_Mapping__c IN 
+            (SELECT Id 
+            FROM ETL_Entities_Mapping__mdt 
+            WHERE Direction__c = '{direction}')
         """
     results = sf.query(mapping_statement)
     schema_map = {}
@@ -78,7 +86,9 @@ def get_mappings(sf):
                 "external_id_name" : parent.get('External_Id_Name__c'),
                 "is_details" : parent.get('Is_details_source__c'),
                 "object_name" : parent.get('Entity_API_Name__c'),
-                "rules" : {}
+                "rules" : {},
+                "operation" : parent.get('Operation_Type__c'),
+                "direction" : parent.get('Direction__c')
             },
                 "details": []}
         source_field = rec.get('Source_Field_Name__c')
@@ -100,7 +110,8 @@ def get_mappings(sf):
                     True: dictionary_ref.get('Label_True__c'),
                     False: dictionary_ref.get('Label_False__c')
         }
-   
+    print(f'schema from ,apping:{schema_map}')
+    
     return schema_map
 
 def get_junctions(sf):
@@ -177,8 +188,8 @@ def get_results(sf):
         #print(','.join([*[f['target'] for f in fields], 'dateLastModified\n']))
         
         for rec in itertools.chain([first_record], db_stream):
-            print(f'field id:{id_field}')
-            print(f'master key: {flatten_record(rec).get(id_field)}')
+            # print(f'field id:{id_field}')
+            # print(f'master key: {flatten_record(rec).get(id_field)}')
             master_key = flatten_record(rec).get(id_field) #full record
             master[master_key] = rec
              
@@ -228,40 +239,43 @@ def get_results(sf):
     return gen_map
 
 def get_gen_scaffolds(sf):
-    watermarks = get_watermarks(sf)
-    gen_scaffolds = {}
-    for developer_name, fields in get_mappings(sf).items():
-        if not fields:
-            continue
-        custom_clause = fields['header'].get('where_cl')
-        is_details = fields['header'].get('is_details')
-        #source_fields = [f['source'] for f in fields['details'] if f['source'] != '---']
-        source_fields = [f['source'] for f in fields['details'] if not f.get('is_header_only')]
-        tech_fields = ['Id']
-        if not is_details:
-            tech_fields.extend(['SystemModStamp', 
-                                'CreatedDate', 
-                                'CreatedBy.TimeZoneSidKey',
-                                'LastModifiedDate',
-                                ])
-        final_fields = list(dict.fromkeys(f.lower() for f in source_fields + tech_fields))
-        object_name = fields['header'].get('object_name')
-        watermark = None if is_details else watermarks[object_name]
-        filters = [f"SystemModStamp > {watermark}" if watermark and not is_details else None, f"({custom_clause})" if custom_clause else None]
-        where_statement = "WHERE " + " AND ".join(filter(None, filters)) if any(filters) else ""
-        soql = f"""
-            SELECT {', '.join(final_fields)} 
-            FROM {object_name}  
-            {where_statement}
-            ORDER BY SYSTEMMODSTAMP ASC
-        """
-        #print(soql)
-        fields['details'] = [f for f in fields['details'] if not f.get('is_recordset_only')]
-        gen_scaffolds[developer_name] = {
-            "soql" : soql,
-            "fields" : fields,
-            "wm" : watermark or "1900-01-01T00:00:00.000+0000"
-        }
+    try:
+        watermarks = get_watermarks(sf)
+        gen_scaffolds = {}
+        for developer_name, fields in get_mappings(sf).items():
+            if not fields:
+                continue
+            custom_clause = fields['header'].get('where_cl')
+            is_details = fields['header'].get('is_details')
+            #source_fields = [f['source'] for f in fields['details'] if f['source'] != '---']
+            source_fields = [f['source'] for f in fields['details'] if not f.get('is_header_only')]
+            tech_fields = ['Id']
+            if not is_details:
+                tech_fields.extend(['SystemModStamp', 
+                                    'CreatedDate', 
+                                    'CreatedBy.TimeZoneSidKey',
+                                    'LastModifiedDate',
+                                    ])
+            final_fields = list(dict.fromkeys(f.lower() for f in source_fields + tech_fields))
+            object_name = fields['header'].get('object_name')
+            watermark = None if is_details else watermarks[object_name]
+            filters = [f"SystemModStamp > {watermark}" if watermark and not is_details else None, f"({custom_clause})" if custom_clause else None]
+            where_statement = "WHERE " + " AND ".join(filter(None, filters)) if any(filters) else ""
+            soql = f"""
+                SELECT {', '.join(final_fields)} 
+                FROM {object_name}  
+                {where_statement}
+                ORDER BY SYSTEMMODSTAMP ASC
+            """
+            print(soql)
+            fields['details'] = [f for f in fields['details'] if not f.get('is_recordset_only')]
+            gen_scaffolds[developer_name] = {
+                "soql" : soql,
+                "fields" : fields,
+                "wm" : watermark or "1900-01-01T00:00:00.000+0000"
+            }
+    except Exception as e:
+        print(f'from scafffolds:{e}')
 
     return gen_scaffolds
 
