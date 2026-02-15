@@ -208,3 +208,5 @@ __marimo__/
 
 #custom
 /cert
+
+*.zip
