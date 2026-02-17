@@ -6,3 +6,5 @@ services:
     stop_grace_period: 2m
     env_file:
       - .env
+    volumes:
+      - ./logs:/var/log/etl
