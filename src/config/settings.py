@@ -27,3 +27,5 @@ DEBUG              = os.getenv('DEBUG', 'False').lower() == 'true'
 SSH_REMOTE_IFOLDER = os.getenv('SSH_REMOTE_IFOLDER', '/inbound')
 SSH_REMOTE_UFOLDER = os.getenv('SSH_REMOTE_UFOLDER', '/outbound')
 SSH_FILE_IPREFIX   = os.getenv('SSH_FILE_IPREFIX', 'data_')
+BUFFER_SIZE = int(os.getenv('BUFFER_SIZE', 2000))
+ZIP_NAME_SEPARATOR = os.getenv('ZIP_NAME_SEPARATOR', '-')

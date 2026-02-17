@@ -4,11 +4,12 @@ from threading import Event
 from collections import deque
 from processes import inbound, outbound
 from config import settings
-from utils import force, common
+from utils import force, common, loggin
 from connectors import sftp
 from connectors.salesforce import SalesforceClient 
 
 stop_event = Event()
+loggin.setup_logging()
 
 def handle_sigterm(signum, frame):
     print("Received SIGTERM, stopping gracefully...")
@@ -23,9 +24,10 @@ def main():
         'sf_conn': sf_client.get_instance,
         'sftp_conn': sftp.get_instance,
     }
-
+    personal = True
     try:
         while not stop_event.is_set():
+            personal = False
             starting_point = time.time()
             
             pipeline = deque([
@@ -61,8 +63,6 @@ def main():
 
                 finally:
                     pipeline.popleft()                    
-                    if settings.DEBUG:
-                        print(f'Finished {task_name}. Moving to next step...')
             rest = max(0, float(settings.WINDOW) - (time.time() - starting_point))
             if rest > 0: 
                 time.sleep(rest)
@@ -73,8 +73,6 @@ def main():
                 sftp_client = resources['sftp_conn']()
                 if hasattr(sftp_client, 'close'): 
                     sftp_client.close()
-            if settings.DEBUG:
-                print("Connections closed")
         except Exception as e:
             pass 
 

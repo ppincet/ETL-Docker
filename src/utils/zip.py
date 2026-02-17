@@ -2,8 +2,10 @@ import zipfile
 import itertools
 from utils import force, constants
 from collections import defaultdict
+import os
+from config import settings
 
-def upload_file(sf, zip_filename,wm):
+def upload_file(sf, zip_filename, wm):
     # try:
     manifest_entries = []
     file_groups = defaultdict(list)
@@ -68,11 +70,76 @@ def upload_file(sf, zip_filename,wm):
                 current_line = f"{manifest_prefix}.{manifest_property},{manifest_value}\n"
                 manifest_entry.write(current_line.encode('utf-8'))
             manifest_entry.close()
-    #print(f'total:{total_size} vs header:{header_size}')
-# except Exception as e:
-    # print(f'exc: {e}')
     return constants.ETL_SUCCESS if total_size > header_size else constants.ETL_EMPTY
 
+def get_latest_workload(sftp_conn):
+    all_files = sftp_conn.listdir_attr(settings.SSH_REMOTE_UFOLDER)
+    zip_files = [f for f in all_files if f.filename.endswith('.zip')]
+    zip_files.sort(key=lambda x: x.st_mtime, reverse=True)
+    target_files = zip_files[:5]
+    return [f.filename for f in target_files]
+def process_sftp_to_sf(sftp_client, sf_client):
+    buffer = [] 
+    local_tmp='./tmp'
+    remote_path = settings.SSH_REMOTE_UFOLDER
+    os.makedirs(local_tmp, exist_ok=True)
+    zip_files = get_latest_workload(sftp_client)
+    for zip_name in zip_files:
+        print(f'zip to process:{zip_name}')
+        local_zip_path = os.path.join(local_tmp, zip_name)
+        sftp_client.get(os.path.join(remote_path, zip_name), local_zip_path)
+        with zipfile.ZipFile(local_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(local_tmp)
+            csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv') and f not in constants.ETL_EXCLUDED_FILES]
+            
+            for csv_name in csv_files:
+                print(f'csv filename:{csv_name}')
+                csv_path = os.path.join(local_tmp, csv_name)
+                with open(csv_path, mode='r', encoding='utf-8') as f:
+                    header_line = f.readline()
+                    if not header_line:
+                        continue
+                    headers = header_line.strip().split(',')
+                    for line in f:
+                        if not line.strip(): 
+                            continue 
+                        values = line.strip().split(',')
+                        
+                        row = dict(zip(headers, values))
+                        #print(f'row contents: {row}')
+                        # mapped_row = map_data_to_sf(row) 
+                        #buffer.append(mapped_row)
+
+            
+                        # if len(buffer) >= settings.BUFFER_SIZE:
+                        #     perform_upsert(sf_client, buffer)
+                        #     buffer.clear() # Memory-efficient clearing
+
+                # CLEANUP: Remove CSV after reading
+                os.remove(csv_path)
+
+        # CLEANUP: Remove Local Zip & SFTP Zip after full processing
+        os.remove(local_zip_path)
+        #sftp_client.remove(os.path.join(remote_path, zip_name))
+        print(f"Successfully processed and deleted: {zip_name}")
+
+    # 4. THE "FLUSH": Handle leftovers (e.g., the last 300 records)
+    # if buffer:
+    #     perform_upsert(sf_client, buffer)
+    #     print(f"Final flush of {len(buffer)} records complete.")
+
+def perform_upsert(sf_client, data):
+    """
+    Wrapper for your Salesforce Bulk API call.
+    Uses External_ID__c to prevent duplicates if a re-run occurs.
+    """
+    try:
+        # Example using simple-salesforce bulk interface
+        sf_client.bulk.Your_Object__c.upsert(data, 'External_ID__c', batch_size=2000)
+    except Exception as e:
+        print(f"Critical Upload Error: {e}")
+        # In a real app, you'd want to log this to a DB to retry later
+        raise
 
 
 

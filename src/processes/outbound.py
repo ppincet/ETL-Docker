@@ -1,7 +1,10 @@
-#from simple_salesforce import Salesforce
-#from connectors import salesforce
-
+from datetime import datetime
+from utils import zip, ssh, constants, force
+from config import settings
+from pathlib import Path
 
 def process(sf_conn, sftp_conn, strict = False):
-    if strict == False:
-        print('outbound')
+    return
+    zip.process_sftp_to_sf(sftp_conn, sf_conn)
+
+

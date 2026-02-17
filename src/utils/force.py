@@ -40,11 +40,13 @@ def log(sf, message, trace=""):
     """
     sf.User_Provisioning_Evt__e.create(message)
 def get_mappings(sf, direction = 'Forth'):
-    print(f'direction:{direction}')
     """
         Returns mapping froms SF Metadata
         we dont need to implement generator - we are sure we have less than 2k recs
         todo - work with json as well
+        
+        cmdt doesn't work with the rels in where clause
+
     """
     
     mapping_statement = f"""
@@ -110,8 +112,6 @@ def get_mappings(sf, direction = 'Forth'):
                     True: dictionary_ref.get('Label_True__c'),
                     False: dictionary_ref.get('Label_False__c')
         }
-    print(f'schema from ,apping:{schema_map}')
-    
     return schema_map
 
 def get_junctions(sf):
@@ -267,7 +267,6 @@ def get_gen_scaffolds(sf):
                 {where_statement}
                 ORDER BY SYSTEMMODSTAMP ASC
             """
-            print(soql)
             fields['details'] = [f for f in fields['details'] if not f.get('is_recordset_only')]
             gen_scaffolds[developer_name] = {
                 "soql" : soql,
