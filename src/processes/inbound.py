@@ -17,9 +17,9 @@ def process(sf_conn, sftp_conn, strict = False):
     if zip.upload_file(sf_conn,  filename, wm) == constants.ETL_SUCCESS:
       logger.info('----- zip is alive after force')
       logger.info(f'filename from inbound:{filename}')
-      # if ssh.upload(sf_conn, sftp_conn, filename) == constants.ETL_SUCCESS:
-      #   force.upsert_wm(sf_conn, wm)
-      #   print('done from inbound')
+      if ssh.upload(sf_conn, sftp_conn, filename) == constants.ETL_SUCCESS:
+        force.upsert_wm(sf_conn, wm)
+        print('done from inbound')
     try:
       Path(filename).unlink()
     except FileNotFoundError:
