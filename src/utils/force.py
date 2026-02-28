@@ -1,12 +1,42 @@
 from typing import Dict, Iterator, Any, List
 from collections import defaultdict
 import itertools
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from utils import constants
 from config import settings
+import sys
 
 
+_CACHE = {"mappings" : {"data": None, "expires_at": 0},
+          "manifest" : {"data": None, "expires_at": 0},
+          "dictionary" : {"data": None, "expires_at": 0}
+          }
+
+def get_dictionaries(sf):
+    '''
+        returns back complex 1:n dictionaries
+    '''
+    dict_statement = '''
+        SELECT 
+            Field_Lookup__c,
+            source__c,
+            target__c,
+            ETL_Entities_Mapping__r.DeveloperName
+        FROM ETL_Dictionary__mdt
+    '''
+    result = defaultdict(dict)
+    
+    for rec in sf.query(dict_statement)['records']:
+        entity_ref = rec.get('ETL_Entities_Mapping__r')
+        entity = entity_ref.get('DeveloperName') if entity_ref else 'Global'
+        lookup = rec['Field_Lookup__c']
+        source = rec['source__c']
+        target = rec['target__c']
+        if lookup and source is not None:
+            result[(entity,lookup)][source] = target
+    return result
 def get_manifest(sf):
     """
         Returns manifest scaffold
@@ -39,7 +69,8 @@ def log(sf, message, trace=""):
     Provides log message
     """
     sf.User_Provisioning_Evt__e.create(message)
-def get_mappings(sf, direction = 'Forth'):
+def get_mappings(sf):
+    complex_dict = get_dictionaries(sf)
     """
         Returns mapping froms SF Metadata
         we dont need to implement generator - we are sure we have less than 2k recs
@@ -48,7 +79,10 @@ def get_mappings(sf, direction = 'Forth'):
         cmdt doesn't work with the rels in where clause
 
     """
-    
+
+    if _CACHE['mappings']['data'] and (time.time() - _CACHE['mappings']['expires_at'] > settings.MAPPINGS_TTL):
+        print('cached')
+        return _CACHE["mappings"]["data"]
     mapping_statement = f"""
         SELECT 
             ETL_Entities_Mapping__r.DeveloperName,
@@ -66,23 +100,26 @@ def get_mappings(sf, direction = 'Forth'):
             Target_Field_Name__c, 
             Source_Field_Name__c,
             Excluded_from_header__c,
-            Excluded_from_recordset__c
-
+            Excluded_from_recordset__c,
+            (select Source_Name__c from ETL_Composite_keys__r)
         FROM ETL_Fields_Mapping__mdt
-        WHERE ETL_Entities_Mapping__c IN 
-            (SELECT Id 
-            FROM ETL_Entities_Mapping__mdt 
-            WHERE Direction__c = '{direction}')
         """
     results = sf.query(mapping_statement)
     schema_map = {}
     for rec in results['records']:
+        tempo_composite_keys = set()
         parent = rec.get('ETL_Entities_Mapping__r')
         if not parent: continue
         dictionary_ref = rec.get('ETL_Dictionary__r')
+        composite_ref = rec.get('ETL_Composite_Keys__r')
         developer_name = parent.get('DeveloperName')
-        if developer_name not in schema_map:
-            schema_map[developer_name] = {"header" : {
+
+        direction = parent.get('Direction__c')
+        if direction not in schema_map:
+            schema_map[direction] = {}
+
+        if developer_name not in schema_map[direction]:
+            schema_map[direction][developer_name] = {"header" : {
                 "file": parent.get('File_Name__c'),
                 "where_cl" : parent.get('Where_Clause__c'),
                 "external_id_name" : parent.get('External_Id_Name__c'),
@@ -98,21 +135,39 @@ def get_mappings(sf, direction = 'Forth'):
         target_header = rec.get('Target_Field_Name__c')
         is_recordset_only = rec.get('Excluded_from_header__c')
         is_header_only = rec.get('Excluded_from_recordset__c')
-        
+
         if developer_name and source_field:
-            schema_map[developer_name]["details"].append({
+            field_rules ={}
+            if dictionary_ref:
+                field_rules = {
+                    True: dictionary_ref.get('Label_True__c'),
+                    False: dictionary_ref.get('Label_False__c')
+                }
+            complex_rules = complex_dict.get((developer_name,source_field), {})
+            schema_map[direction][developer_name]["details"].append({
                     "source": source_field,
                     "target": target_header,
                     "type": source_field_type,
                     "is_recordset_only": is_recordset_only,
-                    "is_header_only": is_header_only
+                    "is_header_only": is_header_only,
+                    "compositeKeys": [],
+                    "rules" : field_rules,
+                    "complexRules" : complex_rules,
             })
             if dictionary_ref:
-                schema_map[developer_name]["header"]["rules"][source_field] = {
+                schema_map[direction][developer_name]["header"]["rules"][source_field] = {
                     True: dictionary_ref.get('Label_True__c'),
-                    False: dictionary_ref.get('Label_False__c')
-        }
-    return schema_map
+                    False: dictionary_ref.get('Label_False__c'),
+                    dictionary_ref.get('Label_True__c'): True,
+                    dictionary_ref.get('Label_False__c') : False,
+                }
+            if composite_ref:
+                for key in composite_ref.get('records', []):
+                    tempo_composite_keys.add(key.get('Source_Name__c'))
+                schema_map[direction][developer_name]["details"][-1]["compositeKeys"] = tempo_composite_keys
+    _CACHE['mappings']['data'] = schema_map
+    _CACHE['mappings']['expires_at'] = time.time() + settings.MAPPINGS_TTL
+    return _CACHE['mappings']['data']
 
 def get_junctions(sf):
     '''
@@ -151,13 +206,14 @@ def get_watermarks(sf):
     watermarks = {}
     for rec in results['records']:
         entity = rec.get('Entity_API_Name__c')
+        stamp = rec.get('Stamp__c')
         if entity not in watermarks:
-            watermarks[entity] = rec.get('Stamp__c')
-    #print(f'watermarks:{watermarks}')
+            watermarks[entity] = stamp if stamp else '1970-01-01T00:00:00.000+0000'
     return watermarks
 def get_results(sf):
     gen_map: Dict[tuple, List[Iterator[str]]] = defaultdict(list)
     gen_scaffolds = get_gen_scaffolds(sf)
+
     def generate_delta(source, contents):
         master = {}
         id_field = contents["fk"].lower()
@@ -185,11 +241,8 @@ def get_results(sf):
         # header
         # yield (','.join([*[f['target'] for f in fields], 'status']) + '\n', None)
         yield (','.join([*[f['target'] for f in fields], 'dateLastModified\n']), None)
-        #print(','.join([*[f['target'] for f in fields], 'dateLastModified\n']))
         
         for rec in itertools.chain([first_record], db_stream):
-            # print(f'field id:{id_field}')
-            # print(f'master key: {flatten_record(rec).get(id_field)}')
             master_key = flatten_record(rec).get(id_field) #full record
             master[master_key] = rec
              
@@ -242,12 +295,14 @@ def get_gen_scaffolds(sf):
     try:
         watermarks = get_watermarks(sf)
         gen_scaffolds = {}
-        for developer_name, fields in get_mappings(sf).items():
+        # print('scaffs before')
+        # print(f'mappings:{get_mappings(sf)['Forth']}')
+        for developer_name, fields in get_mappings(sf)['Forth'].items():
             if not fields:
                 continue
+            # print(f'after:{developer_name}')
             custom_clause = fields['header'].get('where_cl')
             is_details = fields['header'].get('is_details')
-            #source_fields = [f['source'] for f in fields['details'] if f['source'] != '---']
             source_fields = [f['source'] for f in fields['details'] if not f.get('is_header_only')]
             tech_fields = ['Id']
             if not is_details:
@@ -259,7 +314,9 @@ def get_gen_scaffolds(sf):
             final_fields = list(dict.fromkeys(f.lower() for f in source_fields + tech_fields))
             object_name = fields['header'].get('object_name')
             watermark = None if is_details else watermarks[object_name]
-            filters = [f"SystemModStamp > {watermark}" if watermark and not is_details else None, f"({custom_clause})" if custom_clause else None]
+            filters = [f"SystemModStamp > {watermark}" if watermark and not is_details else None, 
+                        f"({custom_clause})" if custom_clause else None,
+                        f"(LastModifiedById != '{settings.INTEGRATION_USER_ID}')"]
             where_statement = "WHERE " + " AND ".join(filter(None, filters)) if any(filters) else ""
             soql = f"""
                 SELECT {', '.join(final_fields)} 
@@ -273,9 +330,9 @@ def get_gen_scaffolds(sf):
                 "fields" : fields,
                 "wm" : watermark or "1900-01-01T00:00:00.000+0000"
             }
-    except Exception as e:
-        print(f'from scafffolds:{e}')
-
+    except Exception as e :
+        print(f'❌from scaffs:{e}')
+    
     return gen_scaffolds
 
 def lazy_loading(sf, soql_statement):

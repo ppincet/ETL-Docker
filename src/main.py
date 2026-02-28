@@ -8,6 +8,7 @@ from utils import force, common, loggin
 from connectors import sftp
 from connectors.salesforce import SalesforceClient 
 
+sf_client = SalesforceClient()
 stop_event = Event()
 loggin.setup_logging()
 
@@ -18,7 +19,6 @@ def handle_sigterm(signum, frame):
 signal.signal(signal.SIGTERM, handle_sigterm)
 
 def main():
-    sf_client = SalesforceClient()
     heart_tick_counter = 5
     resources = {
         'sf_conn': sf_client.get_instance,
@@ -26,8 +26,9 @@ def main():
     }
     personal = True
     try:
-        while not stop_event.is_set():
+        while personal and not stop_event.is_set():
             personal = False
+            print('next start tick')
             starting_point = time.time()
             
             pipeline = deque([

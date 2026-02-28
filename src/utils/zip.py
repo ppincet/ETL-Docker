@@ -11,9 +11,12 @@ def upload_file(sf, zip_filename, wm):
     file_groups = defaultdict(list)
     header_size = 0
     total_size = 0
+    # print('before ----')
+    # print(f'scaffs from zip:{force.get_results(sf)}')
     for (filename, entity_name), list_of_gens in force.get_results(sf).items():
         for gen in list_of_gens:
             file_groups[filename].append((entity_name, gen))
+   
     with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zf:
         for filename, entity_list in file_groups.items():
             
@@ -73,74 +76,117 @@ def upload_file(sf, zip_filename, wm):
     return constants.ETL_SUCCESS if total_size > header_size else constants.ETL_EMPTY
 
 def get_latest_workload(sftp_conn):
+    '''
+    2do - add watermark
+    System_SFTP - api name
+    '''
     all_files = sftp_conn.listdir_attr(settings.SSH_REMOTE_UFOLDER)
     zip_files = [f for f in all_files if f.filename.endswith('.zip')]
     zip_files.sort(key=lambda x: x.st_mtime, reverse=True)
-    target_files = zip_files[:5]
+    target_files = zip_files[:1]
     return [f.filename for f in target_files]
-def process_sftp_to_sf(sftp_client, sf_client):
-    buffer = [] 
-    local_tmp='./tmp'
+
+def perform_upsert(sf_client, data, settings):
+    try:
+        #clean_data = [dict(record) for record in data if isinstance(record, dict)]
+        # sf_bulk_resource = getattr(sf_client.bulk2, settings['entity_api_name'])
+        sf_bulk_resource = getattr(sf_client.bulk2, 'Learning')
+        print(data)
+        results = sf_bulk_resource.upsert(
+            records=data, 
+            #external_id_field=settings['ext_id_name']
+            external_id_field='Composite_Source__c'
+        )
+        for row in results:
+            print(f'row:{row}')
+            if isinstance(row, dict) and not row.get('success'):
+                print(f"Record failed: {row.get('errors')}")
+
+    except Exception as e:
+        print(f"Critical Upload Error: {e}")
+        raise
+
+
+def process_sftp_to_sf(sftp_client, sf_client, mappings):
+    local_tmp = './tmp'
     remote_path = settings.SSH_REMOTE_UFOLDER
     os.makedirs(local_tmp, exist_ok=True)
     zip_files = get_latest_workload(sftp_client)
+    
+    data_buffers = {}
+    print(mappings)
     for zip_name in zip_files:
-        print(f'zip to process:{zip_name}')
         local_zip_path = os.path.join(local_tmp, zip_name)
         sftp_client.get(os.path.join(remote_path, zip_name), local_zip_path)
+        
         with zipfile.ZipFile(local_zip_path, 'r') as zip_ref:
             zip_ref.extractall(local_tmp)
             csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv') and f not in constants.ETL_EXCLUDED_FILES]
             
             for csv_name in csv_files:
-                print(f'csv filename:{csv_name}')
+                data_buffers[csv_name] = []
+                csv_map = mappings.get(csv_name, {})
+                details = csv_map.get('details', [])
+                external_settings = {
+                    'ext_id_name': csv_map.get('header', {}).get('external_id_name'),
+                    'entity_api_name': csv_map.get('header', {}).get('object_name')
+                }
+                
                 csv_path = os.path.join(local_tmp, csv_name)
+                
                 with open(csv_path, mode='r', encoding='utf-8') as f:
                     header_line = f.readline()
-                    if not header_line:
-                        continue
+                    if not header_line: continue
                     headers = header_line.strip().split(',')
+                    
                     for line in f:
-                        if not line.strip(): 
-                            continue 
-                        values = line.strip().split(',')
+                        if not line.strip(): continue 
                         
-                        row = dict(zip(headers, values))
-                        #print(f'row contents: {row}')
-                        # mapped_row = map_data_to_sf(row) 
-                        #buffer.append(mapped_row)
+                        row = dict(zip(headers, line.strip().split(',')))
+                        mapped_row = map_data(details, row)
+                        
+                        data_buffers[csv_name].append(mapped_row)
+                        
+                        if len(data_buffers[csv_name]) >= settings.BUFFER_SIZE:
+                            print('temp flush')
+                            # perform_upsert(sf_client, data_buffers[csv_name], external_settings)
+                            data_buffers[csv_name] = [] 
 
-            
-                        # if len(buffer) >= settings.BUFFER_SIZE:
-                        #     perform_upsert(sf_client, buffer)
-                        #     buffer.clear() # Memory-efficient clearing
-
-                # CLEANUP: Remove CSV after reading
+                if data_buffers[csv_name]:
+                    # perform_upsert(sf_client, data_buffers[csv_name], external_settings)
+                    print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
+                    data_buffers[csv_name] = []
                 os.remove(csv_path)
-
-        # CLEANUP: Remove Local Zip & SFTP Zip after full processing
         os.remove(local_zip_path)
-        #sftp_client.remove(os.path.join(remote_path, zip_name))
-        print(f"Successfully processed and deleted: {zip_name}")
-
-    # 4. THE "FLUSH": Handle leftovers (e.g., the last 300 records)
-    # if buffer:
-    #     perform_upsert(sf_client, buffer)
-    #     print(f"Final flush of {len(buffer)} records complete.")
-
-def perform_upsert(sf_client, data):
-    """
-    Wrapper for your Salesforce Bulk API call.
-    Uses External_ID__c to prevent duplicates if a re-run occurs.
-    """
-    try:
-        # Example using simple-salesforce bulk interface
-        sf_client.bulk.Your_Object__c.upsert(data, 'External_ID__c', batch_size=2000)
-    except Exception as e:
-        print(f"Critical Upload Error: {e}")
-        # In a real app, you'd want to log this to a DB to retry later
-        raise
-
+def map_data(fields, row):
+    mapped_one = {}
+    #print(f'row before:{row}')
+    for field in fields:
+        target_field = field.get('target')
+        field_type = field.get('type')
+        if field_type == 'CompositeKey':
+            keys = field.get('compositeKeys', [])
+            raw_value = ",".join([str(row.get(k, '')) for k in keys if row.get(k) is not None])
+        else:
+            source_key = field.get('source')
+            raw_value = row.get(source_key, "")
+        rules = field.get('rules', {})
+        if rules:
+            reversed_rules = {v: k for k, v in rules.items()}
+            processed_value = reversed_rules.get(raw_value, raw_value)
+        else:
+            processed_value = raw_value
+        complex_rules = field.get('complexRules', {})
+        if complex_rules:
+            final_value = complex_rules.get(processed_value, processed_value)
+        else:
+            final_value = processed_value
+        if target_field:
+            if isinstance(final_value, bool):
+                final_value = str(final_value).lower()
+            mapped_one[target_field] = final_value
+    #print(f'mapped one:{mapped_one}')            
+    return mapped_one
 
 
 

@@ -1,4 +1,4 @@
-simple-salesforce
+simple-salesforce==1.12.5
 cryptography
 pyjwt
 requests

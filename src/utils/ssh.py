@@ -11,22 +11,21 @@ def upload(sf, sftp, file_name):
         if remote_folder and remote_folder not in current_dir:
             print(f'Changing folder from {current_dir} to {remote_folder}')
             sftp.chdir(remote_folder)
-
-        # print(f'remote folder:{remote_folder}')
-    # except IOError as e:
-    #     print(f"{e}")
-    #     # status = constants.ETL_FAILED
-    #     # common.crushWrapper('',  ):
-    #try:
         filename_only = os.path.basename(file_name)
         print(f'filename only:{filename_only}')
         sftp.put(file_name, filename_only)
+        print('sftp success')
+        remote_file_info = sftp.stat(filename_only)
+        print(f"Current directory contents: {sftp.listdir('.')}")
+        if remote_file_info.st_size == 0:
+            raise Exception("File uploaded but size is 0 bytes (Check Permissions/Quota)")
+            
+        print(f'SFTP verified success: {filename_only} ({remote_file_info.st_size} bytes)')
     except Exception as e:
         print(f"SFTP Error: {e}")
         status = constants.ETL_FAIL
         traceback.print_exc()
         force.log(sf, common.crushWrapper(str(e), constants.ETL_SFTP_FAIL))
     finally:
-        # if sftp: sftp.close()
         return status
     
