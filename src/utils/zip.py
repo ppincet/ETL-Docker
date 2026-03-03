@@ -169,42 +169,31 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
                 csv_path = os.path.join(local_tmp, csv_name)
                 # getting natural keys to retreive sf ids
                 if csv_name != 'results.csv': continue
+                ext_id_field = external_settings['extIdName']
                 with open(csv_path, mode='r', encoding='utf-8') as f:
-                    # fields_for_ids = [{'source': '---', 
-                    #           'target': 'Combined_Source_Id__c', 
-                    #           'type': 'CompositeKey', 
-                    #           }]
-                    
                     # here to provide confugirable
                     header_line = f.readline()
                     if not header_line: continue
-                    headers = header_line.strip().split(',')
+                    headers = [h.strip() for h in header_line.split(',')]
                     unique_keys = set()
                     for line in f:
+                        if not line.strip(): continue
                         row = dict(zip(headers, line.strip().split(',')))
-                        entity = map_data(details, row).get(external_settings.get('extIdName'))
+                        entity = str(map_data(details, row).get(ext_id_field) or '').strip()
                         if entity: unique_keys.add(entity)
-                #print(f'soql part ext:{unique_keys}')
-                formatted_keys = ", ".join([f"'{k}'" for k in unique_keys])
-                chunk_size = 500
-                # soql_statement =f"""
-                #     SELECT id, 
-                #         {external_settings.get('extIdName')}
-                #     FROM LearnerProgramRequirement
-                #     WHERE {external_settings.get('extIdName')} 
-                #     IN ({formatted_keys})
-                # """
-                # print(f'statement:{soql_statement}')
-                # results = sf_client.query(soql_statement)
-                # print(results)
-                results = force.get_existing_entries(sf_client, external_settings, unique_keys)
-                print(f'results from zip:{results}')
-                #continue
-                with open(csv_path, mode='r', encoding='utf-8') as f:
-                    header_line = f.readline()
-                    if not header_line: continue
-                    headers = header_line.strip().split(',')
-                    
+
+                    results = force.get_existing_entries(sf_client, external_settings, unique_keys)
+                    print(f'results from zip:{results}')
+                    id_lookup = {str(rec.get(ext_id_field.lower())): rec.get('id') for rec in results}
+                    exit
+                    f.seek(0)
+                    f.readline()
+                    print(f'headers from next step:{header_line}')
+                    #with open(csv_path, mode='r', encoding='utf-8') as f:
+                    # header_line = f.readline()
+                    #     if not header_line: continue
+                    #     headers = header_line.strip().split(',')
+                        
                     for line in f:
                         if not line.strip(): continue 
                         
@@ -222,17 +211,16 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
                             perform_upsert(sf_client, data_buffers[csv_name], external_settings)
                             data_buffers[csv_name] = [] 
 
-                if data_buffers[csv_name]:
-                    match csv_name:
-                        case 'results.csv':
-                            perform_upsert(sf_client, data_buffers[csv_name], external_settings)
-                            print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
-                    data_buffers[csv_name] = []
-                os.remove(csv_path)
+                    if data_buffers[csv_name]:
+                        match csv_name:
+                            case 'results.csv':
+                                perform_upsert(sf_client, data_buffers[csv_name], external_settings)
+                                print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
+                        data_buffers[csv_name] = []
+                    #os.remove(csv_path)
         #os.remove(local_zip_path)
 def map_data(fields, row):
     mapped_one = {}
-    #print(f'row before:{row}')
     for field in fields:
         target_field = field.get('target')
         field_type = field.get('type')
@@ -256,8 +244,7 @@ def map_data(fields, row):
         if target_field:
             if isinstance(final_value, bool):
                 final_value = str(final_value).lower()
-            mapped_one[target_field] = final_value
-    #print(f'mapped one:{mapped_one}')            
+            mapped_one[target_field] = final_value      
     return mapped_one
 
 

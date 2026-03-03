@@ -14,26 +14,26 @@ _CACHE = {"mappings" : {"data": None, "expires_at": 0},
           "dictionary" : {"data": None, "expires_at": 0}
           }
 def get_existing_entries(sf, settings, unique_keys):
-    '''
-        retrieves entites from sf with natural id
-        (most likely composed key is used)
-        settings - {sObject, field}
-    '''
     all_results = []
     chunk_size = 400
-    keys_list = list(unique_keys)
+    keys_list = [str(k).strip() for k in unique_keys if k]
+    
+    if not keys_list:
+        return []
+
+    ext_id = settings.get('extIdName')
+    entity = settings.get('entityApiName')
+
     for i in range(0, len(keys_list), chunk_size):
         chunk = keys_list[i : i + chunk_size]
-        formatted_chunk = ", ".join([f"'{k}'" for k in chunk])     
-        soql = f"""
-                    SELECT id, 
-                        {settings.get('extIdName')}
-                    FROM {settings.get('entityApiName')}
-                    WHERE {settings.get('extIdName')} 
-                    IN ({formatted_chunk})
-                """
-        batch_results = sf.query(soql)
-        all_results.extend(batch_results.get('records', []))
+        formatted_chunk = ", ".join([f"'{str(k).replace("'", "\\'")}'" for k in chunk]) 
+        soql = f"SELECT Id, {ext_id} FROM {entity} WHERE {ext_id} IN ({formatted_chunk})"
+        print(f'soql:{soql}')
+        db_stream = lazy_loading(sf, soql) 
+        for rec in db_stream:
+            if rec:
+                all_results.append(rec)
+            
     return all_results
 def get_dictionaries(sf):
     '''
@@ -122,7 +122,7 @@ def get_mappings(sf):
             Source_Field_Name__c,
             Excluded_from_header__c,
             Excluded_from_recordset__c,
-            (select Source_Name__c from ETL_Composite_keys__r)
+            (select Source_Name__c, Order__c from ETL_Composite_keys__r order by Order__c )
         FROM ETL_Fields_Mapping__mdt
         """
     results = sf.query(mapping_statement)
@@ -183,8 +183,9 @@ def get_mappings(sf):
                     dictionary_ref.get('Label_False__c') : False,
                 }
             if composite_ref:
-                for key in composite_ref.get('records', []):
-                    tempo_composite_keys.add(key.get('Source_Name__c'))
+                raw_keys = composite_ref.get('records', [])
+                raw_keys.sort(key=lambda x: float(x.get('Order__c') or 0))
+                tempo_composite_keys = [key.get('Source_Name__c') for key in raw_keys]
                 schema_map[direction][developer_name]["details"][-1]["compositeKeys"] = tempo_composite_keys
     _CACHE['mappings']['data'] = schema_map
     _CACHE['mappings']['expires_at'] = time.time() + settings.MAPPINGS_TTL
@@ -463,6 +464,7 @@ def flatten_record(record):
     Converts keys to lowercase and joins nested keys with '.'.
     Removes 'attributes' keys.
     """
+    #print(f'before flat one:{record}')
     flat_record = {}
     stack = [(record, '')]
     while stack:
