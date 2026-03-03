@@ -1,5 +1,6 @@
 import zipfile
 import itertools
+import time
 from utils import force, constants
 from collections import defaultdict
 import os
@@ -87,20 +88,55 @@ def get_latest_workload(sftp_conn):
     return [f.filename for f in target_files]
 
 def perform_upsert(sf_client, data, settings):
+    
+    formatted_data = [
+        {
+            'Name': item.get('Name'),
+            'CIPCODE' : item.get('external_source_id__c'),
+            'Composite_Source__c': f"{item.get('Name')},{item.get('external_source_id__c')}",
+            # 'isActive': item.get('Active_Custom__c'),
+            'isActive' : False,
+            'Type': 'LearningCourse'
+        } 
+        for item in data
+    ]
+    return
     try:
-        #clean_data = [dict(record) for record in data if isinstance(record, dict)]
-        # sf_bulk_resource = getattr(sf_client.bulk2, settings['entity_api_name'])
         sf_bulk_resource = getattr(sf_client.bulk2, 'Learning')
-        print(data)
-        results = sf_bulk_resource.upsert(
-            records=data, 
-            #external_id_field=settings['ext_id_name']
+
+        job = sf_bulk_resource.upsert(
+            records=formatted_data, 
             external_id_field='Composite_Source__c'
         )
-        for row in results:
-            print(f'row:{row}')
-            if isinstance(row, dict) and not row.get('success'):
-                print(f"Record failed: {row.get('errors')}")
+        
+        if isinstance(job, list):
+            job_id = job[0]['job_id']
+        else:
+            job_id = job['job_id']
+
+        session = sf_client.bulk2.session
+        headers = sf_client.bulk2.headers
+        base_url = sf_client.base_url + "jobs/ingest/" + job_id      
+        failed_results_url = f"{sf_client.base_url}jobs/ingest/{job_id}/failedResults"
+        successfulResults_url = f"{sf_client.base_url}jobs/ingest/{job_id}/successfulResults"
+
+        while True:
+            response = session.get(base_url, headers=headers)
+            status_data = response.json()
+            if status_data['state'] in ['JobComplete', 'Failed', 'Aborted']:
+             break
+            time.sleep(5)
+        if status_data['state'] == 'JobComplete':
+            print('before getting the results')
+            #response = sf_client.bulk2.session.get(failed_results_url, headers=sf_client.bulk2.headers)
+            response = sf_client.bulk2.session.get(successfulResults_url, headers=sf_client.bulk2.headers)
+            print(response.text)
+            # results = sf_client.bulk2.get_upsert_results('Learning', job_id)
+            # print('after getting the results')
+            # for row in results:
+            #     print(f'row:{row.get('success')}')
+            #     if isinstance(row, dict) and not row.get('success'):
+            #         print(f"Record failed: {row.get('errors')}")
 
     except Exception as e:
         print(f"Critical Upload Error: {e}")
@@ -114,7 +150,6 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
     zip_files = get_latest_workload(sftp_client)
     
     data_buffers = {}
-    print(mappings)
     for zip_name in zip_files:
         local_zip_path = os.path.join(local_tmp, zip_name)
         sftp_client.get(os.path.join(remote_path, zip_name), local_zip_path)
@@ -124,16 +159,47 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
             csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv') and f not in constants.ETL_EXCLUDED_FILES]
             
             for csv_name in csv_files:
-                data_buffers[csv_name] = []
                 csv_map = mappings.get(csv_name, {})
-                details = csv_map.get('details', [])
                 external_settings = {
-                    'ext_id_name': csv_map.get('header', {}).get('external_id_name'),
-                    'entity_api_name': csv_map.get('header', {}).get('object_name')
+                    'extIdName': csv_map.get('header', {}).get('external_id_name'),
+                    'entityApiName': csv_map.get('header', {}).get('object_name'),
                 }
-                
+                data_buffers[csv_name] = []
+                details = csv_map.get('details', [])
                 csv_path = os.path.join(local_tmp, csv_name)
-                
+                # getting natural keys to retreive sf ids
+                if csv_name != 'results.csv': continue
+                with open(csv_path, mode='r', encoding='utf-8') as f:
+                    # fields_for_ids = [{'source': '---', 
+                    #           'target': 'Combined_Source_Id__c', 
+                    #           'type': 'CompositeKey', 
+                    #           }]
+                    
+                    # here to provide confugirable
+                    header_line = f.readline()
+                    if not header_line: continue
+                    headers = header_line.strip().split(',')
+                    unique_keys = set()
+                    for line in f:
+                        row = dict(zip(headers, line.strip().split(',')))
+                        entity = map_data(details, row).get(external_settings.get('extIdName'))
+                        if entity: unique_keys.add(entity)
+                #print(f'soql part ext:{unique_keys}')
+                formatted_keys = ", ".join([f"'{k}'" for k in unique_keys])
+                chunk_size = 500
+                # soql_statement =f"""
+                #     SELECT id, 
+                #         {external_settings.get('extIdName')}
+                #     FROM LearnerProgramRequirement
+                #     WHERE {external_settings.get('extIdName')} 
+                #     IN ({formatted_keys})
+                # """
+                # print(f'statement:{soql_statement}')
+                # results = sf_client.query(soql_statement)
+                # print(results)
+                results = force.get_existing_entries(sf_client, external_settings, unique_keys)
+                print(f'results from zip:{results}')
+                #continue
                 with open(csv_path, mode='r', encoding='utf-8') as f:
                     header_line = f.readline()
                     if not header_line: continue
@@ -149,15 +215,21 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
                         
                         if len(data_buffers[csv_name]) >= settings.BUFFER_SIZE:
                             print('temp flush')
-                            # perform_upsert(sf_client, data_buffers[csv_name], external_settings)
+                            match csv_name:
+                                case 'results.csv':
+                                    print('inside results')
+
+                            perform_upsert(sf_client, data_buffers[csv_name], external_settings)
                             data_buffers[csv_name] = [] 
 
                 if data_buffers[csv_name]:
-                    # perform_upsert(sf_client, data_buffers[csv_name], external_settings)
-                    print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
+                    match csv_name:
+                        case 'results.csv':
+                            perform_upsert(sf_client, data_buffers[csv_name], external_settings)
+                            print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
                     data_buffers[csv_name] = []
                 os.remove(csv_path)
-        os.remove(local_zip_path)
+        #os.remove(local_zip_path)
 def map_data(fields, row):
     mapped_one = {}
     #print(f'row before:{row}')

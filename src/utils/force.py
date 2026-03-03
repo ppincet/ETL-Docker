@@ -13,7 +13,28 @@ _CACHE = {"mappings" : {"data": None, "expires_at": 0},
           "manifest" : {"data": None, "expires_at": 0},
           "dictionary" : {"data": None, "expires_at": 0}
           }
-
+def get_existing_entries(sf, settings, unique_keys):
+    '''
+        retrieves entites from sf with natural id
+        (most likely composed key is used)
+        settings - {sObject, field}
+    '''
+    all_results = []
+    chunk_size = 400
+    keys_list = list(unique_keys)
+    for i in range(0, len(keys_list), chunk_size):
+        chunk = keys_list[i : i + chunk_size]
+        formatted_chunk = ", ".join([f"'{k}'" for k in chunk])     
+        soql = f"""
+                    SELECT id, 
+                        {settings.get('extIdName')}
+                    FROM {settings.get('entityApiName')}
+                    WHERE {settings.get('extIdName')} 
+                    IN ({formatted_chunk})
+                """
+        batch_results = sf.query(soql)
+        all_results.extend(batch_results.get('records', []))
+    return all_results
 def get_dictionaries(sf):
     '''
         returns back complex 1:n dictionaries
@@ -481,3 +502,24 @@ def upsert_wm(sf, wm):
             print(f" [ERR] Failed to update {entity_name}: {e}")
 
     print(f"--- Watermark Sync Complete. Success: {success_count}/{len(wm)} ---")
+
+def get_ids(sf, unique_keys, object_name, field_name):
+    '''
+        returns map with chunks to avois sf soql statement size limit 1
+    '''
+    id_map = {}
+    keys_list = list(unique_keys)
+    chunk_size = 500 
+    for i in range(0, len(keys_list), chunk_size):
+        chunk = keys_list[i : i + chunk_size]
+        formatted_keys = "('" + "','".join(chunk) + "')"
+        query = f"SELECT Id, {field_name} FROM {object_name} WHERE {field_name} IN {formatted_keys}"      
+        try:
+            results = sf.query(query)
+            for record in results['records']:
+                key_value = record[field_name].lower()
+                id_map[key_value] = record['Id']
+        except Exception as e:
+            print(f"Error querying chunk starting at {i}: {e}")
+            raise
+    return id_map
