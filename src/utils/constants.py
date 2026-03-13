@@ -12,3 +12,5 @@ ETL_TEXT_TYPE = 'Text'
 ETL_BACK_DIR = 'Back'
 ETL_FORTH_DIR = 'Forth'
 ETL_EXCLUDED_FILES = { 'manifest.csv' }
+ETL_UNE_RESULTS = 'results.csv'
+ETL_UNE_LINE_ITEMS = 'lineItems.csv'

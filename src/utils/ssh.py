@@ -15,12 +15,12 @@ def upload(sf, sftp, file_name):
         print(f'filename only:{filename_only}')
         sftp.put(file_name, filename_only)
         print('sftp success')
-        remote_file_info = sftp.stat(filename_only)
-        print(f"Current directory contents: {sftp.listdir('.')}")
-        if remote_file_info.st_size == 0:
-            raise Exception("File uploaded but size is 0 bytes (Check Permissions/Quota)")
+        # remote_file_info = sftp.stat(filename_only)
+        # print(f"Current directory contents: {sftp.listdir('.')}")
+        # if remote_file_info.st_size == 0:
+        #     raise Exception("File uploaded but size is 0 bytes (Check Permissions/Quota)")
             
-        print(f'SFTP verified success: {filename_only} ({remote_file_info.st_size} bytes)')
+        # print(f'SFTP verified success: {filename_only} ({remote_file_info.st_size} bytes)')
     except Exception as e:
         print(f"SFTP Error: {e}")
         status = constants.ETL_FAIL

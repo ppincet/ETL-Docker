@@ -28,7 +28,7 @@ def get_existing_entries(sf, settings, unique_keys):
         chunk = keys_list[i : i + chunk_size]
         formatted_chunk = ", ".join([f"'{str(k).replace("'", "\\'")}'" for k in chunk]) 
         soql = f"SELECT Id, {ext_id} FROM {entity} WHERE {ext_id} IN ({formatted_chunk})"
-        print(f'soql:{soql}')
+        #print(f'soql:{soql}')
         db_stream = lazy_loading(sf, soql) 
         for rec in db_stream:
             if rec:
@@ -505,6 +505,15 @@ def upsert_wm(sf, wm):
 
     print(f"--- Watermark Sync Complete. Success: {success_count}/{len(wm)} ---")
 
+def perform_update(sf, data, settings):
+    print('from perfrom update!')
+    return
+    sf_bulk_resource = getattr(sf.bulk, settings['entityApiName'])
+    results = sf_bulk_resource.update(data)
+    total = len(data)
+    print(f'total:{total}')
+    print(f'results from update:{results}')
+   # here to add logs!!
 def get_ids(sf, unique_keys, object_name, field_name):
     '''
         returns map with chunks to avois sf soql statement size limit 1
@@ -517,8 +526,7 @@ def get_ids(sf, unique_keys, object_name, field_name):
         formatted_keys = "('" + "','".join(chunk) + "')"
         query = f"SELECT Id, {field_name} FROM {object_name} WHERE {field_name} IN {formatted_keys}"      
         try:
-            results = sf.query(query)
-            for record in results['records']:
+            for record in lazy_loading(sf, query):
                 key_value = record[field_name].lower()
                 id_map[key_value] = record['Id']
         except Exception as e:

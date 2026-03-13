@@ -27,7 +27,7 @@ def main():
     personal = True
     try:
         while personal and not stop_event.is_set():
-            #personal = False
+            personal = False
             print('next start tick')
             starting_point = time.time()
             

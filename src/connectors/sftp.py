@@ -1,5 +1,4 @@
 import paramiko
-import os
 from config import settings
 _sftp_instance = None
 _transport = None
