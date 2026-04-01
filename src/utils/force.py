@@ -28,13 +28,16 @@ def get_existing_entries(sf, settings, unique_keys):
         chunk = keys_list[i : i + chunk_size]
         formatted_chunk = ", ".join([f"'{str(k).replace("'", "\\'")}'" for k in chunk]) 
         soql = f"SELECT Id, {ext_id} FROM {entity} WHERE {ext_id} IN ({formatted_chunk})"
-        #print(f'soql:{soql}')
         db_stream = lazy_loading(sf, soql) 
         for rec in db_stream:
-            if rec:
-                all_results.append(rec)
-            
+            all_results.append(rec)
     return all_results
+def get_learnings(sf):
+    results = []
+    chunk_size = 400
+    
+
+    return results
 def get_dictionaries(sf):
     '''
         returns back complex 1:n dictionaries
@@ -93,7 +96,7 @@ def log(sf, message, trace=""):
 def get_mappings(sf):
     complex_dict = get_dictionaries(sf)
     """
-        Returns mapping froms SF Metadata
+        Returns mapping from SF Metadata
         we dont need to implement generator - we are sure we have less than 2k recs
         todo - work with json as well
         
@@ -363,6 +366,8 @@ def lazy_loading(sf, soql_statement):
     """
     
     results = sf.query(soql_statement)
+    # print(f'soql from lazy: {soql_statement}')
+    # print(f'results from lazy:{results}')
     done = results['done']
     for rec in results['records']:
         yield flatten_record(rec)
@@ -506,14 +511,21 @@ def upsert_wm(sf, wm):
     print(f"--- Watermark Sync Complete. Success: {success_count}/{len(wm)} ---")
 
 def perform_update(sf, data, settings):
-    print('from perfrom update!')
-    return
+    #print('from perfrom update!')
+    #return
+    # print(f'data from update:{data}')
+    # for i, item in enumerate(data):
+    #     print(f'{i}: {item.get('id')}')
+    if not data: return
     sf_bulk_resource = getattr(sf.bulk, settings['entityApiName'])
     results = sf_bulk_resource.update(data)
     total = len(data)
-    print(f'total:{total}')
-    print(f'results from update:{results}')
+    # print(f'total:{total}')
+    # for idx, content in enumerate(results):
+    #     print(f'{idx}: {content}')
+    # print(f'results from update:{results}')
    # here to add logs!!
+
 def get_ids(sf, unique_keys, object_name, field_name):
     '''
         returns map with chunks to avois sf soql statement size limit 1

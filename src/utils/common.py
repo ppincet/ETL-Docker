@@ -1,4 +1,5 @@
 from utils import constants
+from dataclasses import dataclass
 def heartbeatWrapper(step, details='default'):
     return {
         'Message__c' : 'Heart beat',
@@ -18,3 +19,11 @@ def crushWrapper(trace, step=''):
         'Process_Name__c' : constants.ETL_PROCESS,
         'Status__c' : constants.ETL_FAIL
     }
+
+@dataclass  
+class ZipRange:
+    start: int
+    end: int
+    zip_name: str
+    def contains(self, index: int) -> bool:
+        return self.start <= index <= self.end

@@ -2,10 +2,11 @@ import zipfile
 import itertools
 import time
 from datetime import datetime
-from utils import force, constants
+from utils import force, constants, common
 from collections import defaultdict
 import os
 from config import settings
+import csv
 
 def upload_file(sf, zip_filename, wm):
     # try:
@@ -89,7 +90,7 @@ def get_latest_workload(sftp_conn):
     target_files = zip_files[:1]
     return [f.filename for f in target_files]
 
-def perform_upsert(sf_client, data, settings):
+def perform_upsert(sf_client, data, app_settings):
     formatted_data = []
     for item in data:
         raw_name = item.get('Name')
@@ -100,7 +101,8 @@ def perform_upsert(sf_client, data, settings):
         record = {
             'Name': formatted_name,
             'CIPCODE': item.get('external_source_id__c'),
-            'Composite_Source__c': f"{formatted_name},{item.get('external_source_id__c')}",
+            # 'Composite_Source__c': f"{formatted_name},{item.get('external_source_id__c')}",
+            'Composite_Source__c': f"{item.get('external_source_id__c')}",
             'isActive': item.get('Active_Custom__c'),
             'Type': 'LearningCourse'
         } 
@@ -113,59 +115,61 @@ def perform_upsert(sf_client, data, settings):
         external_id = 'Composite_Source__c' 
         sf_bulk_resource = getattr(sf_client.bulk, 'Learning')
         results = sf_bulk_resource.upsert(formatted_data, external_id)
-        # print(f'from upsert:{results}')
+        # for i, item in enumerate(formatted_data):
+        #     print(f'{i} (formatted learning): {item}')
+        # for item in results:
+        #     print(f'from upsert(basis):{item}')
+        faults = []
+        fault_lines = set()
         for i, item in enumerate(results):
             if item.get('success'): 
                 data[i]['LearningId'] = item.get('id')
                 data[i]['CourseNumber'] = data[i].get('external_source_id__c') 
             else:
+                # data[i].pop('LearningId', None)
+                fault_lines.add(i)
+                fault_entry = {
+                    'User__c' : settings.INTEGRATION_USER_ID,
+                    'Process_name__c': 'back integration',
+                    'Step__c' : 'Creating new learning',
+                    'Message__c' : data[i].get('statusCode', 'UNKNOWN_ERROR'),
+                    'Details__c' : data[i].get('message', 'No error message provided')
+                }
+                
+                faults.append(fault_entry)
                 data[i]['LearningId'] = None
-        #print(f'data from upsert:{data[0]}')
-        sf_bulk_resource = getattr(sf_client.bulk, settings['entityApiName'])
-        results = sf_bulk_resource.upsert(data, settings['extIdName'])
-
-        print(f'final results:{results}')
-        #return data
-        # while True:
-
-        
-        # job = sf_bulk_resource.upsert(
-        #     records=formatted_data, 
-        #     external_id_field='Composite_Source__c'
-        # )
-        
-        # if isinstance(job, list):
-        #     job_id = job[0]['job_id']
-        # else:
-        #     job_id = job['job_id']
-
-        # session = sf_client.bulk2.session
-        # headers = sf_client.bulk2.headers
-        # base_url = sf_client.base_url + "jobs/ingest/" + job_id      
-        # failed_results_url = f"{sf_client.base_url}jobs/ingest/{job_id}/failedResults"
-        # successfulResults_url = f"{sf_client.base_url}jobs/ingest/{job_id}/successfulResults"
-
-        # while True:
-        #     response = session.get(base_url, headers=headers)
-        #     status_data = response.json()
-        #     if status_data['state'] in ['JobComplete', 'Failed', 'Aborted']:
-        #      break
-        #     time.sleep(5)
-        # if status_data['state'] == 'JobComplete':
-        #     print('before getting the results')
-        #     #response = sf_client.bulk2.session.get(failed_results_url, headers=sf_client.bulk2.headers)
-        #     response = sf_client.bulk2.session.get(successfulResults_url, headers=sf_client.bulk2.headers)
-        #     print(response.text)
-        #     # results = sf_client.bulk2.get_upsert_results('Learning', job_id)
-        #     # print('after getting the results')
-        #     # for row in results:
-        #     #     print(f'row:{row.get('success')}')
-        #     #     if isinstance(row, dict) and not row.get('success'):
-        #     #         print(f"Record failed: {row.get('errors')}")
-
+        # print(f'data from upsert:{data[0]}')
+            # print(f'initial data ({i}): {item}')
+        sf_bulk_resource = getattr(sf_client.bulk, app_settings['entityApiName'])
+        line_count = 1
+        for i, item in enumerate(sf_bulk_resource.upsert(data, app_settings['extIdName'])):
+            print(f'item from upsert({i}):{item}')
+            if not item.get('success'):
+               fault_lines.add(i)
+               errors = item.get('errors', [{}])
+               first_error = errors[0] if errors else {}
+               fault_entry = {
+                    'User__c' : settings.INTEGRATION_USER_ID,
+                    'Process_name__c': 'back integration',
+                    'Step__c' : 'Creating new learning course',
+                    'Message__c': first_error.get('statusCode', 'UNKNOWN_ERROR'),
+                    'Details__c': first_error.get('message', 'No error message provided')
+                }  
+               faults.append(fault_entry)
+               #print(f'fault entry:{fault_entry}')
+            # else:
+            #     print(f'upserted: {item}')
+        # print('-----     failures STX ----------------')
+        # for f in faults:
+        #     print(f)
+        # print('-------          failures ETX  --------------')
+        if faults:
+            sf_bulk_resource = getattr(sf_client.bulk, 'User_Provisioning_Log__c')
+            results = sf_bulk_resource.insert(faults)
     except Exception as e:
         print(f"Critical Upload Error: {e}")
-        raise
+        raise   
+    return fault_lines
 
 
 def process_sftp_to_sf(sftp_client, sf_client, mappings):
@@ -173,18 +177,25 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
     remote_path = settings.SSH_REMOTE_UFOLDER
     os.makedirs(local_tmp, exist_ok=True)
     zip_files = get_latest_workload(sftp_client)
-    #print(f'zip files:{zip_files}')
-    data_buffers = {}
+    data_buffers = defaultdict(list)
+    # zip_storage = defaultdict()
+    head_pointer = 0
+    tail_pointer = 0
     for zip_name in zip_files:
+        print(f'new entry: {common.ZipRange(head_pointer, tail_pointer, zip_name)}')
         local_zip_path = os.path.join(local_tmp, zip_name)
         sftp_client.get(os.path.join(remote_path, zip_name), local_zip_path)
         
         with zipfile.ZipFile(local_zip_path, 'r') as zip_ref:
             zip_ref.extractall(local_tmp)
-            csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv') and f not in constants.ETL_EXCLUDED_FILES]
-            
+            #csv_files = [os.path.basename(f) for f in zip_ref.namelist() if f.endswith('.csv') and os.path.basename(f) not in constants.ETL_EXCLUDED_FILES]
+            csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv') and os.path.basename(f) not in constants.ETL_EXCLUDED_FILES]
+            # print(f'csvs:{csv_files}')
             for csv_name in csv_files:
-                csv_map = mappings.get(csv_name, {})
+                # print(f'inside loop: {csv_name}')
+                csv_target = os.path.basename(csv_name)
+                # csv_map = mappings.get(os.path.basename(csv_name), {})
+                csv_map = mappings.get(csv_target, {})
                 external_settings = {
                     'extIdName': csv_map.get('header', {}).get('external_id_name'),
                     'entityApiName': csv_map.get('header', {}).get('object_name'),
@@ -214,23 +225,25 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
                         entity = str(map_data(details, row).get(ext_id_field) or '').strip()
                         if entity: unique_keys.add(entity)
                     # here to check upsert
-                    if csv_map.get('header', {}).get('operation') == 'update':
-                        results = force.get_existing_entries(sf_client, external_settings, unique_keys)
-                    print(f'results (existing ones) from zip for {csv_name}:{results}')
+                
+                    # if csv_map.get('header', {}).get('operation') == 'update':
+                    #     print('inside update')
+                    results = force.get_existing_entries(sf_client, external_settings, unique_keys)
+
+                    # print(f'results (existing ones) from zip for {csv_name}:{results}')
+                    # print('after getting type - results')
                     #  used for updating each record with id (if found)
                     id_lookup = {str(rec.get(ext_id_field.lower())): rec.get('id') for rec in results}
                     #print(f'id lookup:{id_lookup}')
                     f.seek(0)
                     f.readline()
-                    #with open(csv_path, mode='r', encoding='utf-8') as f:
-                    # header_line = f.readline()
-                    #     if not header_line: continue
-                    #     headers = header_line.strip().split(',')
-                        
+                    #print('next step - (seeking for mapping)')
+                    seen_ids = set()
                     for line in f:
                         if not line.strip(): continue 
-                        
-                        row = dict(zip(headers, line.strip().split(',')))
+                        parts = next(csv.reader([line]))
+                        row = dict(zip(headers, parts))
+                        # print(f'raw from main: {f} {row}')
                         mapped_row = map_data(details, row)
                         #print(f'mapped one from {csv_name}: {mapped_row}')
                         lookup_key = str(mapped_row.get(external_settings['extIdName']))
@@ -270,10 +283,44 @@ def process_sftp_to_sf(sftp_client, sf_client, mappings):
                                 for item in tempo:
                                     print(f'result from line items(flush): {item}')
                                 
-                    print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
-                    data_buffers[csv_name] = []
-                    #os.remove(csv_path)
-        #os.remove(local_zip_path)
+                    #print(f"✅ {csv_name} processed ({len(data_buffers[csv_name])} records)")
+                    #data_buffers[csv_name] = []
+                    # os.remove(csv_path)
+        # try:
+        #      os.remove(local_zip_path)
+        # except Exception as e:
+        #     print(e)
+    # start flushing
+    #match 
+    # case 'lineItems.csv':
+    #     force.perform_update(sf_client, data_buffers[csv_name], external_settings)    
+    #     tempo = perform_upsert(sf_client, data_buffers[csv_name], external_settings)
+    #print(f'mappings: {mappings}')
+    # print(f'data buffers from zip: {data_buffers}')
+    for csv_name, entry in data_buffers.items():
+        # print(f'entry {csv_name} : {entry}')
+        csv_map = mappings.get(f'{os.path.basename(csv_name)}', {})
+        ext_settings =  {
+                    'extIdName': csv_map.get('header', {}).get('external_id_name'),
+                    'entityApiName': csv_map.get('header', {}).get('object_name'),
+                } 
+        # print(f'operation: ({csv_name}){csv_map.get('header', {}).get('operation')}')
+        match csv_map.get('header', {}).get('operation'):
+            case 'update':
+                print('before update')
+                for item in entry:
+                    print(f'line from update: {item}')
+                print('before update')
+                print(f'collected data: {data_buffers[csv_name]}')
+
+                force.perform_update(sf_client, entry, ext_settings)
+            case 'upsert' :
+                # print('before upsert(main cycle)')
+                # print(f'entries from finish upsert:{entry}')
+                # print(f'entry:{csv_name} / {entry}')
+                tempo = perform_upsert(sf_client, entry, ext_settings)
+                print(f'tempo(from process -- issues): {tempo}')
+        # print(f'for {csv}: {entries}')
 def map_data(fields, row):
     mapped_one = {}
     #gotta_simple = False
