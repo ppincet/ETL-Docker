@@ -68,6 +68,7 @@ def main():
         # except Exception as e:
         #     pass 
         logger.info('finaly block is there')
+        print('finally block')
 
 if __name__ == "__main__": 
     main()
