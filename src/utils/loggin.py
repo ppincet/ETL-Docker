@@ -4,7 +4,7 @@ from config import settings
 import os
 
 def setup_logging(log_file="etl.log", level=logging.INFO):
-    log_dir = 'app/logs'
+    log_dir = 'logs'
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, log_file)
     file_handler = RotatingFileHandler(
