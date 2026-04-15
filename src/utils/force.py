@@ -350,7 +350,7 @@ def get_gen_scaffolds(sf):
                 {where_statement}
                 ORDER BY SYSTEMMODSTAMP ASC
             """
-            print(f'soql from scaffolds:{soql}')
+            # print(f'soql from scaffolds:{soql}')
             fields['details'] = [f for f in fields['details'] if not f.get('is_recordset_only')]
             gen_scaffolds[developer_name] = {
                 "soql" : soql,
