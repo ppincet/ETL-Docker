@@ -4,7 +4,8 @@ from config import settings
 from pathlib import Path
 import logging
 
-def process(sf_conn, sftp_conn, strict = False):
+def process(sf_conn, sftp_in, strict = False):
+  
   logger = logging.getLogger(__name__)
   return
  
@@ -19,16 +20,17 @@ def process(sf_conn, sftp_conn, strict = False):
     if settings.DEBUG == True:
       logger.info('----- zip is alive after force')
       logger.info(f'filename from inbound:{filename}')
-    if ssh.upload(sf_conn, sftp_conn, filename) == constants.ETL_SUCCESS:
+    if ssh.upload(sf_conn, sftp_in, filename) == constants.ETL_SUCCESS:
       if settings.DEBUG == True:
         print('done upload before wm')
       force.upsert_wm(sf_conn, wm)
       print('done from inbound')
-    # if settings.DEBUG == True:
-    #   try:
-    #     Path(filename).unlink()
-    #   except FileNotFoundError:
-    #     print('nothing to remove(from inbound)')
+    print(f'is debug:{settings.DEBUG}')
+  # if settings.DEBUG == True:
+  #   try:
+  #     Path(filename).unlink()
+  #   except FileNotFoundError:
+  #     print('nothing to remove(from inbound)')
 
     
 

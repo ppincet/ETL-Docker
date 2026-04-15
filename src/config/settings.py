@@ -30,10 +30,17 @@ try:
     WINDOW             = float(os.getenv('WINDOW', 120)) 
 except ValueError:
     WINDOW = 120
-DEBUG              = os.getenv('DEBUG', 'False').lower() == 'true'
-SSH_REMOTE_IFOLDER = os.getenv('SSH_REMOTE_IFOLDER', '/inbound')
-SSH_REMOTE_UFOLDER = os.getenv('SSH_REMOTE_UFOLDER', '/outbound')
-SSH_FILE_IPREFIX   = os.getenv('SSH_FILE_IPREFIX', 'data_')
+DEBUG                       = str(os.getenv('DEBUG', 'False')).lower() == 'true'
+SSH_REMOTE_IFOLDER          = os.getenv('SSH_REMOTE_IFOLDER', '/inbound')
+SSH_REMOTE_UFOLDER          = os.getenv('SSH_REMOTE_UFOLDER', '/outbound')
+SSH_REMOTE_UFOLDER_FAILED   = os.getenv('SSH_REMOTE_UFOLDER_FAILED', '/outbound')
+SSH_REMOTE_UFOLDER_SUCCESS  = os.getenv('SSH_REMOTE_UFOLDER_SUCCESS', '/outbound')
+SSH_FILE_IPREFIX            = os.getenv('SSH_FILE_IPREFIX', 'data_')
+SSH_REMOVE_SUCCESS          = str(os.getenv('SSH_REMOVE_SUCCESS', 'False')).lower() == 'true'
+try:
+    SSH_WINDOW = int(os.getenv('SSH_WINDOW', 10))
+except ValueError:
+    SSH_WINDOW = 10
 try:
     BUFFER_SIZE = int(os.getenv('BUFFER_SIZE', 2000))
 except ValueError:
@@ -51,4 +58,5 @@ try:
     SYS_MAX_LOG_ROTATION = int(os.getenv('SYS_MAX_LOG_ROTATION', 5))
 except ValueError:
     SYS_MAX_LOG_ROTATION = 5
+
 LOGS_PATH = os.getenv('LOGS_PATH')

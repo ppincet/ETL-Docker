@@ -28,6 +28,7 @@ def get_existing_entries(sf, settings, unique_keys):
         chunk = keys_list[i : i + chunk_size]
         formatted_chunk = ", ".join([f"'{str(k).replace("'", "\\'")}'" for k in chunk]) 
         soql = f"SELECT Id, {ext_id} FROM {entity} WHERE {ext_id} IN ({formatted_chunk})"
+        print(f'from force soql: {soql}')
         db_stream = lazy_loading(sf, soql) 
         for rec in db_stream:
             all_results.append(rec)
@@ -349,6 +350,7 @@ def get_gen_scaffolds(sf):
                 {where_statement}
                 ORDER BY SYSTEMMODSTAMP ASC
             """
+            # print(f'soql from scaffolds:{soql}')
             fields['details'] = [f for f in fields['details'] if not f.get('is_recordset_only')]
             gen_scaffolds[developer_name] = {
                 "soql" : soql,
@@ -517,13 +519,24 @@ def perform_update(sf, data, settings):
     # for i, item in enumerate(data):
     #     print(f'{i}: {item.get('id')}')
     if not data: return
+    '''
+        remove zipName
+    '''
+    # 20260411
+    update_payload = [{k: v for k, v in row.items() if k != 'zipName'} for row in data]
     sf_bulk_resource = getattr(sf.bulk, settings['entityApiName'])
-    results = sf_bulk_resource.update(data)
+    results = sf_bulk_resource.update(update_payload)
     total = len(data)
     # print(f'total:{total}')
-    # for idx, content in enumerate(results):
-    #     print(f'{idx}: {content}')
-    # print(f'results from update:{results}')
+    for idx, content in enumerate(results):
+        if content['success']:
+            print(f'success; {content['id']}')
+        else:
+            error_info = content.get('errors', [{}])[0]
+            error_msg = error_info.get('message', 'Unknown Error')
+            status_code = error_info.get('statusCode', 'UNKNOWN')    
+            print(f"Error on record {idx}: {status_code} - {error_msg}")
+    print(f'results from update:{results}')
    # here to add logs!!
 
 def get_ids(sf, unique_keys, object_name, field_name):

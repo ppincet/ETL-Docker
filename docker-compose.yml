@@ -7,4 +7,4 @@ services:
     env_file:
       - .env
     volumes:
-      - ./logs:/var/log/etl
+      - ./etl_logs:${LOGS_PATH}

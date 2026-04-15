@@ -4,10 +4,8 @@ from config import settings
 import os
 
 def setup_logging(log_file="app.log", level=logging.INFO):
-    log_dir = settings.LOGS_PATH
-    # if not os.path.exists(log_dir):
-    #     os.makedirs(log_dir)
-    
+    log_dir = 'app/logs'
+    os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, log_file)
     file_handler = RotatingFileHandler(
         log_path, 

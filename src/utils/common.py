@@ -27,3 +27,4 @@ class ZipRange:
     zip_name: str
     def contains(self, index: int) -> bool:
         return self.start <= index <= self.end
+
