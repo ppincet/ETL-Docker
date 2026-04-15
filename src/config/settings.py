@@ -60,3 +60,4 @@ except ValueError:
     SYS_MAX_LOG_ROTATION = 5
 
 LOGS_PATH = os.getenv('LOGS_PATH')
+SF_VERSION = os.getenv('SF_VERSION', '60.0')

@@ -52,7 +52,7 @@ class SalesforceClient:
                     instance_url=auth_response['instance_url'],
                     session_id=auth_response['access_token'],
                     session=session,
-                    version='60.0'
+                    version=settings.SF_VERSION
                 )
                 print("✅ Salesforce Connected")
             else:
