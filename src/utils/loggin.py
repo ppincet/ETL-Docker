@@ -25,7 +25,8 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
     console_handler.setFormatter(formatter)
     logging.basicConfig(
         level=level,
-        handlers=[file_handler, console_handler]
+        handlers=[file_handler, console_handler],
+        force=True
     )
     # min level is warning & up to critical
     logging.getLogger("paramiko").setLevel(logging.WARNING)
