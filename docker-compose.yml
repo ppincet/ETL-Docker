@@ -7,4 +7,4 @@ services:
     env_file:
       - .env
     volumes:
-      - ${LOGS_PATH}:/logs
+      - ${LOGS_PATH}:/app/logs
