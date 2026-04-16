@@ -4,9 +4,7 @@ from config import settings
 import os
 debug = settings.DEBUG
 def setup_logging(log_file="etl.log", level=logging.INFO):
-    print('hello from logging')
     try:
-
         log_dir = 'logs'
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, log_file)
@@ -33,8 +31,9 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
         )
         # min level is warning & up to critical
         logging.getLogger("paramiko").setLevel(logging.WARNING)
-        print("logging initialized succesfully - stdout")
+        print(f'from loggin setup: {debug}')
         if debug:
+            print(f"looks like debug is not true {debug}")
             logging.info("Logging initialized successfully. - logging")
     except Exception as e:
         print(f'exc from logging: {e}')
