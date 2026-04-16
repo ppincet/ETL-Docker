@@ -27,6 +27,7 @@ signal.signal(signal.SIGTERM, handle_sigterm)
 def main():
     if debug:
         logger.info(f'---- started ----')
+        print(' ---- started --- ')
     heart_tick_counter = 5
     conns = {
         'sftp_in': sftp.get_new_instance(),
