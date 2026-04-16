@@ -1,5 +1,9 @@
 import paramiko
 from config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+debug = settings.DEBUG
 
 def get_new_instance():
     transport = paramiko.Transport((settings.SSH_HOST, settings.SSH_PORT))
@@ -8,7 +12,8 @@ def get_new_instance():
         username=settings.SSH_USERNAME, 
         password=settings.SSH_PASSWORD
     )
-    print('new sftp conn')
+    if settings.DEBUG:
+        print('new sftp conn')
     return paramiko.SFTPClient.from_transport(transport)
 
 def ensure_connection(client):
@@ -18,7 +23,7 @@ def ensure_connection(client):
             # print(f'alive sftp{client}')
             return client
     except Exception:
-        # logger.warning("SFTP connection lost. Reconnecting...")
+        logger.warning("SFTP connection lost. Reconnecting...")
         print(f'from sftp {client}- SFTP connection lost. Reconnecting...')
         raise
     return get_new_instance()

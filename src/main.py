@@ -14,23 +14,26 @@ sf_client = SalesforceClient()
 stop_event = Event()
 loggin.setup_logging()
 logger = logging.getLogger(__name__)
+debug = settings.DEBUG
 
 def handle_sigterm(signum, frame):
-    print("Received SIGTERM, stopping gracefully...")
-    logger.info("Received SIGTERM, stopping gracefully...")
+    if debug:
+        logger.info("Received SIGTERM, stopping gracefully...")
+    # here to fire sf log
     stop_event.set()
 
 signal.signal(signal.SIGTERM, handle_sigterm)
 
 def main():
-    logger.info(f'started')
+    if debug:
+        logger.info(f'---- started ----')
     heart_tick_counter = 5
     conns = {
         'sftp_in': sftp.get_new_instance(),
         'sftp_out': sftp.get_new_instance(),
         'sf_conn': sf_client.get_instance()
     }
-    # return
+    return
     personal = True
     try:
         while personal and not stop_event.is_set():
@@ -67,7 +70,11 @@ def main():
         #             sftp_client.close()
         # except Exception as e:
         #     pass 
-        logger.info('finaly block is there')
+        # logger.info('finaly block is there')
+        # here to warn sf
+        # if()
+        final_hearttick = common.heartbeatWrapper('main loop', )
+        
         print('finally block')
 
 if __name__ == "__main__": 

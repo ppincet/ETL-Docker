@@ -2,9 +2,9 @@ import logging
 from logging.handlers import RotatingFileHandler
 from config import settings
 import os
-
+debug = settings.DEBUG
 def setup_logging(log_file="etl.log", level=logging.INFO):
-    log_dir = 'logs'
+    log_dir = 'app/logs'
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, log_file)
     file_handler = RotatingFileHandler(
@@ -23,10 +23,11 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
     )
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
-
     logging.basicConfig(
         level=level,
         handlers=[file_handler, console_handler]
     )
-
-    logging.info("Logging initialized successfully.")
+    # min level is warning & up to critical
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+    if debug:
+        logging.info("Logging initialized successfully.")
