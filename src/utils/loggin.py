@@ -4,6 +4,7 @@ from config import settings
 import os
 debug = settings.DEBUG
 def setup_logging(log_file="etl.log", level=logging.INFO):
+    print('hello from logging')
     try:
 
         log_dir = 'app/logs'
