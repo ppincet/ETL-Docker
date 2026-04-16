@@ -32,7 +32,7 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
             # force=True
         )
         # min level is warning & up to critical
-        # logging.getLogger("paramiko").setLevel(logging.WARNING)
+        logging.getLogger("paramiko").setLevel(logging.WARNING)
         print("logging initialized succesfully - stdout")
         if debug:
             logging.info("Logging initialized successfully. - logging")
