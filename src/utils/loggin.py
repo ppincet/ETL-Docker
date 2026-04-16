@@ -29,13 +29,13 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
         logging.basicConfig(
             level=level,
             handlers=[file_handler, console_handler],
-            force=True
+            # force=True
         )
         # min level is warning & up to critical
-        logging.getLogger("paramiko").setLevel(logging.WARNING)
-        print("logging initialized succesfully")
+        # logging.getLogger("paramiko").setLevel(logging.WARNING)
+        print("logging initialized succesfully - stdout")
         if debug:
-            logging.info("Logging initialized successfully.")
+            logging.info("Logging initialized successfully. - logging")
     except Exception as e:
         print(f'exc from logging: {e}')
         raise
