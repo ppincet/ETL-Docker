@@ -7,7 +7,7 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
     print('hello from logging')
     try:
 
-        log_dir = 'app/logs'
+        log_dir = 'logs'
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, log_file)
         file_handler = RotatingFileHandler(
@@ -33,6 +33,7 @@ def setup_logging(log_file="etl.log", level=logging.INFO):
         )
         # min level is warning & up to critical
         logging.getLogger("paramiko").setLevel(logging.WARNING)
+        print("logging initialized succesfully")
         if debug:
             logging.info("Logging initialized successfully.")
     except Exception as e:
