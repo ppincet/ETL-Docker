@@ -8,7 +8,7 @@ def process(sf_conn, sftp_in, strict = False):
   
   logger = logging.getLogger(__name__)
   # return
- 
+  
   timestamp = datetime.now().strftime(f"%Y%m%d{settings.ZIP_NAME_SEPARATOR}%H%M%S")
   filename = f"./{settings.SSH_FILE_IPREFIX}{settings.ZIP_NAME_SEPARATOR}{timestamp}.zip"
   wm: dict[str, datetime] = {}

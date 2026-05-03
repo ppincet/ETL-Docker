@@ -14,25 +14,29 @@ _CACHE = {"mappings" : {"data": None, "expires_at": 0},
           "dictionary" : {"data": None, "expires_at": 0}
           }
 def get_existing_entries(sf, settings, unique_keys):
-    all_results = []
-    chunk_size = 400
-    keys_list = [str(k).strip() for k in unique_keys if k]
-    
-    if not keys_list:
-        return []
+    try:
+        all_results = []
+        chunk_size = 400
+        keys_list = [str(k).strip() for k in unique_keys if k]
+        
+        if not keys_list:
+            return []
 
-    ext_id = settings.get('extIdName')
-    entity = settings.get('entityApiName')
+        ext_id = settings.get('extIdName')
+        entity = settings.get('entityApiName')
 
-    for i in range(0, len(keys_list), chunk_size):
-        chunk = keys_list[i : i + chunk_size]
-        formatted_chunk = ", ".join([f"'{str(k).replace("'", "\\'")}'" for k in chunk]) 
-        soql = f"SELECT Id, {ext_id} FROM {entity} WHERE {ext_id} IN ({formatted_chunk})"
-        print(f'from force soql: {soql}')
-        db_stream = lazy_loading(sf, soql) 
-        for rec in db_stream:
-            all_results.append(rec)
-    return all_results
+        for i in range(0, len(keys_list), chunk_size):
+            chunk = keys_list[i : i + chunk_size]
+            formatted_chunk = ", ".join([f"'{str(k).replace("'", "\\'")}'" for k in chunk]) 
+            soql = f"SELECT Id, {ext_id} FROM {entity} WHERE {ext_id} IN ({formatted_chunk})"
+            # print(f'from force soql: {soql}')
+            db_stream = lazy_loading(sf, soql) 
+            for rec in db_stream:
+                all_results.append(rec)
+        # print('get existing done')
+        return all_results
+    except Exception as e:
+        print(f'from get existin: {e}')
 def get_learnings(sf):
     results = []
     chunk_size = 400
@@ -129,9 +133,15 @@ def get_mappings(sf):
             (select Source_Name__c, Order__c from ETL_Composite_keys__r order by Order__c )
         FROM ETL_Fields_Mapping__mdt
         """
+    # try:
+
     results = sf.query(mapping_statement)
+    # except Exception as e:
+    #     print(f'from mappings: {e}')
+    # print(f'from mappings: {results}')
     schema_map = {}
     for rec in results['records']:
+        # print(f'from mappings: {rec}')
         tempo_composite_keys = set()
         parent = rec.get('ETL_Entities_Mapping__r')
         if not parent: continue
@@ -322,7 +332,8 @@ def get_gen_scaffolds(sf):
         watermarks = get_watermarks(sf)
         gen_scaffolds = {}
         # print('scaffs before')
-        # print(f'mappings:{get_mappings(sf)['Forth']}')
+        # print(f'mappings:{get_mappings(sf)}')
+        # print(f'mappings:{get_mappings(sf).get('Forth')}')
         for developer_name, fields in get_mappings(sf)['Forth'].items():
             if not fields:
                 continue
@@ -358,7 +369,8 @@ def get_gen_scaffolds(sf):
                 "wm" : watermark or "1900-01-01T00:00:00.000+0000"
             }
     except Exception as e :
-        print(f'❌from scaffs:{e}')
+        print(f'❌ from scaffs:{e}')
+        raise
     
     return gen_scaffolds
 
@@ -506,6 +518,7 @@ def upsert_wm(sf, wm):
             sf.Watermark__c.upsert(record_key, payload)
             success_count += 1
             print(f" [OK] {entity_name}: {max_date}")
+            
             
         except Exception as e:
             print(f" [ERR] Failed to update {entity_name}: {e}")

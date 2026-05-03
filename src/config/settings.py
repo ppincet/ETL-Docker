@@ -37,6 +37,8 @@ SSH_REMOTE_UFOLDER_FAILED   = os.getenv('SSH_REMOTE_UFOLDER_FAILED', '/outbound'
 SSH_REMOTE_UFOLDER_SUCCESS  = os.getenv('SSH_REMOTE_UFOLDER_SUCCESS', '/outbound')
 SSH_FILE_IPREFIX            = os.getenv('SSH_FILE_IPREFIX', 'data_')
 SSH_REMOVE_SUCCESS          = str(os.getenv('SSH_REMOVE_SUCCESS', 'False')).lower() == 'true'
+SSH_REMOVE_FAILED          = str(os.getenv('SSH_REMOVE_FAILED', 'False')).lower() == 'true'
+
 try:
     SSH_WINDOW = int(os.getenv('SSH_WINDOW', 10))
 except ValueError:

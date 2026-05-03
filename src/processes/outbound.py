@@ -9,7 +9,7 @@ def process(sf_conn, sftp_out, strict = False):
         logger = logging.getLogger(__name__)
         logger.info('outbound')
         # print('outbound')
-    return
+    # return
     mapping = adjust_mapping(force.get_mappings(sf_conn)['Back'])
     conns = {
     'sftp_client': sftp_out,  

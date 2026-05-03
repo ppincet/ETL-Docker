@@ -27,21 +27,16 @@ signal.signal(signal.SIGTERM, handle_sigterm)
 def main():
     if debug:
         logger.info(f'---- started ----')
-        print(' ---- started --- ')
     heart_tick_counter = 5
-    conns = {
-        'sftp_in': sftp.get_new_instance(),
-        'sftp_out': sftp.get_new_instance(),
-        'sf_conn': sf_client.get_instance()
-    }
-    return
+    conns = {'sftp_in': None, 'sftp_out': None, 'sf_conn': None}
+ 
     personal = True
     try:
         while personal and not stop_event.is_set():
             personal = False
             print(f'next start tick at {datetime.now().strftime('%H:%M:%S')}')
             starting_point = time.time()
-            
+            conns['sf_conn'] = sf_client.get_instance()
             conns['sftp_in'] = sftp.ensure_connection(conns['sftp_in'])
             conns['sftp_out'] = sftp.ensure_connection(conns['sftp_out'])
             pipeline = deque([
@@ -59,25 +54,13 @@ def main():
                     kwargs = {key: conns[key] for key in res_keys}
                     func(**kwargs, strict=True)
                 except Exception as e:
+                    print(f"Execution error in {func.__name__}: {e}")
                     logger.error(f"Execution error in {func.__name__}: {e}")
             sleep_time = max(0, float(settings.WINDOW) - (time.time() - starting_point))
             stop_event.wait(sleep_time)
-
-    finally:
-        # try:
-        #     if 'sftp_conn' in resources:
-        #         sftp_client = resources['sftp_conn']()
-        #         if hasattr(sftp_client, 'close'): 
-        #             sftp_client.close()
-        # except Exception as e:
-        #     pass 
-        # logger.info('finaly block is there')
-        # here to warn sf
-        # if()
-        final_hearttick = common.heartbeatWrapper('main loop', )
-        
-        print('finally block')
-
+    except Exception as e:
+        print(f'from main: {e}')
+ 
 if __name__ == "__main__": 
     main()
 
