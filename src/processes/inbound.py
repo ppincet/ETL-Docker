@@ -27,10 +27,10 @@ def process(sf_conn, sftp_in, strict = False):
       print('done from inbound')
     print(f'is debug:{settings.DEBUG}')
   # if settings.DEBUG == True:
-  #   try:
-  #     Path(filename).unlink()
-  #   except FileNotFoundError:
-  #     print('nothing to remove(from inbound)')
+    try:
+      Path(filename).unlink()
+    except FileNotFoundError:
+      print('nothing to remove(from inbound)')
 
     
 

@@ -300,7 +300,7 @@ def process_sftp_to_sf(conns, mappings):
         except Exception as e:
             print(f'from main loop: {e}')
             raise
-    print('❗ performing main cycle ❗')
+    # print('❗ performing main cycle ❗')
 
     flush_buffer(conns, data_buffers, mappings, zip_storage)
     return
@@ -359,7 +359,7 @@ def flush_buffer(clients, data_buffers, mappings, zip_storage):
                 # print(f'collected data: {data_buffers[csv_name]}')
                 force.perform_update(sf_client, entry, app_settings)
             case 'upsert' :
-                print('before upsert(main cycle)')
+                # print('before upsert(main cycle)')
                 fault_zips = set()
                 # print(f'entries from finish upsert:{entry}')
                 # print(f'entry:{csv_name} / {entry}')
